@@ -23,12 +23,14 @@ enum Windows {
 struct App {
     selected_window: Windows,
     current_url: String,
+    response: String,
 }
 impl App {
     fn new() -> Self {
         App {
             selected_window: Windows::Address,
             current_url: String::new(),
+            response: String::new(),
         }
     }
     fn up(&mut self) {
@@ -45,14 +47,15 @@ impl App {
     }
 }
 
-fn main() -> Result<(), io::Error> {
+#[tokio::main]
+async fn main() -> Result<(), io::Error> {
     //    setup_terminal()?;
     let mut stdout = io::stdout();
     enable_raw_mode()?;
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-    let res = run_app(&mut terminal);
+    let res = run_app(&mut terminal).await;
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),
@@ -67,7 +70,15 @@ fn main() -> Result<(), io::Error> {
     Ok(())
 }
 
-fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Error> {
+async fn call(url: String) -> Result<String, reqwest::Error> {
+    let body = reqwest::get("https://www.rust-lang.org")
+        .await?
+        .text()
+        .await?;
+    Ok(body)
+}
+
+async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Error> {
     let mut app = App::new();
     loop {
         term.draw(|f| ui(f, &app))?;
@@ -77,9 +88,19 @@ fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Error> {
                     match key.modifiers {
                         event::KeyModifiers::CONTROL => match key.code {
                             event::KeyCode::Char('q') => break,
-                            event::KeyCode::Char('j') => app.down(),
-                            event::KeyCode::Char('k') => app.up(),
-                            event::KeyCode::Enter => app.call()
+                            event::KeyCode::Char('j') => {
+                                app.down();
+                                continue;
+                            }
+                            event::KeyCode::Char('k') => {
+                                app.up();
+                                continue;
+                            }
+                            event::KeyCode::Enter => {
+                                app.response = "dasdasdasddkjahsd".to_string();
+                                app.response =
+                                    call(app.current_url.clone()).await.unwrap();
+                            }
                             _ => (),
                         },
                         _ => (),
@@ -118,19 +139,22 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
         .style(Style::default().bg(Color::Black))
         .borders(Borders::ALL);
     let data = Paragraph::new(app.current_url.clone()).wrap(tui::widgets::Wrap { trim: true });
+    let resp = Paragraph::new(app.response.clone()).wrap(tui::widgets::Wrap { trim: true });
 
     match app.selected_window {
         Windows::Address => {
             let address = address.border_type(tui::widgets::BorderType::Thick);
             let data = data.block(address);
+            let resp = resp.block(body);
             f.render_widget(data, chunks[0]);
-            f.render_widget(body, chunks[1])
+            f.render_widget(resp, chunks[1])
         }
         Windows::Response => {
             let body = body.border_type(tui::widgets::BorderType::Thick);
             let data = data.block(address);
+            let resp = resp.block(body);
             f.render_widget(data, chunks[0]);
-            f.render_widget(body, chunks[1])
+            f.render_widget(resp, chunks[1])
         }
     }
 }
