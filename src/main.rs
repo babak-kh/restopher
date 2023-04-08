@@ -1,8 +1,10 @@
-use std::{io, ops::Div, slice::Chunks, sync::mpsc, thread};
+mod app;
 mod layout;
 mod request;
 mod response;
-mod app;
+use std::io;
+
+use app::{App, Windows};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent},
     execute,
@@ -14,8 +16,6 @@ use tui::{
     widgets::{Block, Borders, Paragraph},
     Frame, Terminal,
 };
-use app::{App,Windows};
-
 
 #[tokio::main]
 async fn main() -> Result<(), io::Error> {
@@ -38,11 +38,6 @@ async fn main() -> Result<(), io::Error> {
         println!("{:?}", err)
     }
     Ok(())
-}
-
-async fn call(url: String) -> Result<String, reqwest::Error> {
-    let body = reqwest::get(url).await?.text().await?;
-    Ok(body)
 }
 
 async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Error> {
@@ -78,7 +73,7 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                     match key.modifiers {
                         event::KeyModifiers::CONTROL => match key.code {
                             event::KeyCode::Char('a') => {
-                                app.response = call(app.current_url.clone()).await.unwrap();
+                                app.call_request().await.unwrap();
                                 continue;
                             }
                             _ => (),
@@ -86,17 +81,17 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                         _ => (),
                     }
                     match key.code {
-                        event::KeyCode::Char(x) => app.current_url.push(x),
+                        event::KeyCode::Char(x) => app.add_address(x),
                         event::KeyCode::Backspace => {
-                            app.current_url.pop();
+                            app.pop_address();
                         }
                         _ => (),
                     }
                 }
                 Windows::Response => (),
                 Windows::Verb => match key.code {
-                    event::KeyCode::Up => app.verb = app.verb.up(),
-                    event::KeyCode::Down => app.verb = app.verb.down(),
+                    event::KeyCode::Up => app.verb_up(),
+                    event::KeyCode::Down => app.verb_down(),
                     _ => (),
                 },
             }
@@ -119,9 +114,11 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
         .style(Style::default().bg(Color::Black))
         .borders(Borders::ALL);
     let l = layout::LayoutBuilder::default(f);
-    let data = Paragraph::new(app.current_url.clone()).wrap(tui::widgets::Wrap { trim: true });
-    let resp = Paragraph::new(app.response.clone()).wrap(tui::widgets::Wrap { trim: true });
-    let verb_str = Paragraph::new(app.verb.to_string()).wrap(tui::widgets::Wrap { trim: true });
+    let data = Paragraph::new(app.address().clone().unwrap_or("".to_string()))
+        .wrap(tui::widgets::Wrap { trim: true });
+    let resp = Paragraph::new(app.response_body().clone()).wrap(tui::widgets::Wrap { trim: true });
+    let verb_str = Paragraph::new(app.verb())
+        .wrap(tui::widgets::Wrap { trim: true });
     match app.selected_window {
         Windows::Address => {
             let address = address.border_type(tui::widgets::BorderType::Thick);

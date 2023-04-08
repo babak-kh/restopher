@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use crate::response::Response;
+
 #[derive(Debug)]
 pub enum HttpVerb {
     GET,
@@ -36,9 +38,38 @@ impl HttpVerb {
 
 #[derive(Debug)]
 pub struct Request {
-    pub headers: Option<HashMap<String,String>>,
-    pub params: Option<HashMap<String,String>>,
+    pub headers: Option<HashMap<String, String>>,
+    pub params: Option<HashMap<String, String>>,
     pub body: Option<String>,
-    pub address: String,
+    pub address: Address,
     pub verb: HttpVerb,
+    pub response: Option<Response>,
+}
+impl Request {
+    pub fn new() -> Self {
+        Request {
+            headers: None,
+            params: None,
+            body: None,
+            address: Address { uri: "".to_string() },
+            verb: HttpVerb::GET,
+            response: None,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Address {
+    uri: String,
+}
+impl Address {
+    pub fn to_string(&self) -> String {
+        self.uri.clone()
+    }
+    pub fn pop(&mut self) {
+        self.uri.pop();
+    }
+    pub fn add(&mut self, c: char) {
+        self.uri.push(c);
+    }
 }

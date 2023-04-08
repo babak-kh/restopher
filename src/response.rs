@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 #[derive(Debug)]
-struct Response {
-    headers: Option<HashMap<String,String>>,
-    body: Option<String>,
-    status_code: i32,
+pub struct Response {
+   pub  headers: Option<HashMap<String,String>>,
+   pub  body: Option<String>,
+   pub  status_code: i32,
 }

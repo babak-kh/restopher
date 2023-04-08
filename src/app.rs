@@ -1,13 +1,15 @@
-use http::HeaderMap;
 use reqwest::{
     get,
     header::{self, HeaderMap},
 };
-use serde_json;
+use serde_json::{self, Serializer};
 use std::collections::HashMap;
 use std::convert::TryInto;
 
-use crate::request::{HttpVerb, Request};
+use crate::{
+    request::{HttpVerb, Request},
+    response::Response,
+};
 #[derive(Debug)]
 pub enum Windows {
     Address,
@@ -26,7 +28,8 @@ enum RequestTabs {
     Params,
 }
 
-enum Error {
+#[derive(Debug)]
+pub enum Error {
     NoRequestErr(usize),
 }
 
@@ -39,7 +42,7 @@ pub struct App {
 impl App {
     pub fn new() -> Self {
         App {
-            requests: None,
+            requests: Some(vec![Request::new()]),
             client: reqwest::Client::new(),
             current_request_idx: 0,
             selected_window: Windows::Address,
@@ -73,15 +76,61 @@ impl App {
             Windows::Verb => (),
         };
     }
-    pub fn address(&self) -> Option<String> {
-        if let Some(req) = self.requests {
-            return Some(req[self.current_request_idx].address);
+    fn current_request_as_mut(&mut self) -> Option<&mut Request> {
+        if let Some(req) = &mut self.requests {
+            return Some(&mut req[self.current_request_idx]);
         };
         None
     }
+    fn current_request(&self) -> Option<&Request> {
+        if let Some(req) = &self.requests {
+            return Some(&req[self.current_request_idx]);
+        };
+        None
+    }
+    pub fn address(&self) -> Option<String> {
+        if let Some(req) = self.current_request() {
+            return Some(req.address.to_string());
+        };
+        None
+    }
+    pub fn pop_address(&mut self) {
+        if let Some(ref mut r) = self.current_request_as_mut() {
+            r.address.pop();
+        }
+    }
+    pub fn add_address(&mut self, c: char) {
+        if let Some(r) = self.current_request_as_mut() {
+            r.address.add(c);
+        }
+    }
+    pub fn verb_up(&mut self) {
+        if let Some(r) = self.current_request_as_mut() {
+            r.verb = r.verb.up();
+        }
+    }
+    pub fn verb_down(&mut self) {
+        if let Some(r) = self.current_request_as_mut() {
+            r.verb = r.verb.down();
+        }
+    }
+    pub fn verb(&self) -> String {
+        if let Some(r) = self.current_request() {
+            return r.verb.to_string();
+        }
+        HttpVerb::GET.to_string()
+    }
+    pub fn response_body(&self) -> String {
+        if let Some(r) = self.current_request() {
+            if let Some(ref res) = r.response {
+                return res.body.clone().unwrap_or("".to_string())
+            };
+        }
+        "".to_string()
+    }
     pub async fn call_request(&mut self) -> Result<String, Error> {
-        if let Some(requests) = &self.requests {
-            let req = &requests[self.current_request_idx];
+        if let Some(requests) = &mut self.requests {
+            let req = &mut requests[self.current_request_idx];
             let headers: HeaderMap = (&req.headers.clone().unwrap())
                 .try_into()
                 .expect("valid headers");
@@ -89,22 +138,103 @@ impl App {
                 HttpVerb::GET => {
                     let r = self
                         .client
-                        .get(&req.address)
-                        .query(&req.params.as_ref().unwrap())
-                        .headers(headers);
-                    r.send().await;
-                }
-                HttpVerb::POST => {
-                    let r = self
-                        .client
-                        .post(&req.address)
+                        .get(&req.address.to_string())
                         .query(&req.params.as_ref().unwrap())
                         .headers(headers)
-                        .json(&serde_json::from_str(&req.body.unwrap()).unwrap())
-                        .send();
+                        .send()
+                        .await
+                        .unwrap();
+                    let mut response_headers = HashMap::new();
+                    for (key, value) in r.headers().iter() {
+                        response_headers.insert(
+                            key.as_str().to_string(),
+                            value.to_str().unwrap().to_string(),
+                        );
+                    }
+                    req.response = Some(Response {
+                        headers: Some(response_headers),
+                        status_code: r.status().as_u16() as i32,
+                        body: Some(r.text().await.unwrap()),
+                    });
                 }
-                HttpVerb::PUT => {}
-                HttpVerb::DELETE => {}
+                HttpVerb::POST => {
+                    let json_body: &serde_json::Value =
+                        &serde_json::from_str(&req.body.clone().unwrap()).unwrap();
+                    let headers: HeaderMap = (&req.headers.clone().unwrap())
+                        .try_into()
+                        .expect("invalid headers");
+                    let r = self
+                        .client
+                        .post(&req.address.to_string())
+                        .query(&req.params.as_ref().unwrap())
+                        .headers(headers)
+                        .json(json_body)
+                        .send()
+                        .await
+                        .unwrap();
+                    let mut response_headers = HashMap::new();
+                    for (key, value) in r.headers().iter() {
+                        response_headers.insert(
+                            key.as_str().to_string(),
+                            value.to_str().unwrap().to_string(),
+                        );
+                    }
+                    req.response = Some(Response {
+                        headers: Some(response_headers),
+                        status_code: r.status().as_u16() as i32,
+                        body: Some(r.text().await.unwrap()),
+                    });
+                }
+                HttpVerb::PUT => {
+                    let json_body: &serde_json::Value =
+                        &serde_json::from_str(&req.body.clone().unwrap()).unwrap();
+                    let headers: HeaderMap = (&req.headers.clone().unwrap())
+                        .try_into()
+                        .expect("invalid headers");
+                    let r = self
+                        .client
+                        .put(&req.address.to_string())
+                        .query(&req.params.as_ref().unwrap())
+                        .headers(headers)
+                        .json(json_body)
+                        .send()
+                        .await
+                        .unwrap();
+                    let mut response_headers = HashMap::new();
+                    for (key, value) in r.headers().iter() {
+                        response_headers.insert(
+                            key.as_str().to_string(),
+                            value.to_str().unwrap().to_string(),
+                        );
+                    }
+                    req.response = Some(Response {
+                        headers: Some(response_headers),
+                        status_code: r.status().as_u16() as i32,
+                        body: Some(r.text().await.unwrap()),
+                    });
+                }
+                HttpVerb::DELETE => {
+                    let r = self
+                        .client
+                        .get(&req.address.to_string())
+                        .query(&req.params.as_ref().unwrap())
+                        .headers(headers)
+                        .send()
+                        .await
+                        .unwrap();
+                    let mut response_headers = HashMap::new();
+                    for (key, value) in r.headers().iter() {
+                        response_headers.insert(
+                            key.as_str().to_string(),
+                            value.to_str().unwrap().to_string(),
+                        );
+                    }
+                    req.response = Some(Response {
+                        headers: Some(response_headers),
+                        status_code: r.status().as_u16() as i32,
+                        body: Some(r.text().await.unwrap()),
+                    });
+                }
             }
         }
         Err(Error::NoRequestErr(0))
