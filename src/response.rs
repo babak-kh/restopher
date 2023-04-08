@@ -4,5 +4,5 @@ use std::collections::HashMap;
 struct Response {
     headers: Option<HashMap<String,String>>,
     body: Option<String>,
-    status_code: int,
+    status_code: i32,
 }

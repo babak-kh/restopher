@@ -1,6 +1,11 @@
+use http::HeaderMap;
+use reqwest::{
+    get,
+    header::{self, HeaderMap},
+};
+use serde_json;
 use std::collections::HashMap;
-
-use reqwest::{get, header::HeaderMap};
+use std::convert::TryInto;
 
 use crate::request::{HttpVerb, Request};
 #[derive(Debug)]
@@ -77,19 +82,26 @@ impl App {
     pub async fn call_request(&mut self) -> Result<String, Error> {
         if let Some(requests) = &self.requests {
             let req = &requests[self.current_request_idx];
+            let headers: HeaderMap = (&req.headers.clone().unwrap())
+                .try_into()
+                .expect("valid headers");
             match req.verb {
                 HttpVerb::GET => {
                     let r = self
                         .client
                         .get(&req.address)
                         .query(&req.params.as_ref().unwrap())
-                        .headers(reqwest::header::HeaderMap::try_from(
-                            &req.headers.as_ref().unwrap(),
-                        ).unwrap());
+                        .headers(headers);
                     r.send().await;
                 }
                 HttpVerb::POST => {
-                    let r = self.client.post(&req.address);
+                    let r = self
+                        .client
+                        .post(&req.address)
+                        .query(&req.params.as_ref().unwrap())
+                        .headers(headers)
+                        .json(&serde_json::from_str(&req.body.unwrap()).unwrap())
+                        .send();
                 }
                 HttpVerb::PUT => {}
                 HttpVerb::DELETE => {}
