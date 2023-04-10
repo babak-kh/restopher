@@ -3,6 +3,7 @@ mod layout;
 mod request;
 mod response;
 use std::io;
+use tokio;
 
 use app::{App, Windows};
 use crossterm::{
@@ -12,9 +13,10 @@ use crossterm::{
 };
 use tui::{
     backend::{Backend, CrosstermBackend},
-    style::{Color, Style},
-    widgets::{Block, Borders, Paragraph},
-    Frame, Terminal,
+    style::{Color, Modifier, Style},
+    text::{Span, Spans},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, Tabs, ListState, TableState},
+    Frame, Terminal, layout::Constraint,
 };
 
 #[tokio::main]
@@ -64,6 +66,10 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                         app.right();
                         continue;
                     }
+                    event::KeyCode::Char('t') => {
+                        app.change_request_tab();
+                        continue;
+                    }
                     _ => (),
                 },
                 _ => (),
@@ -94,6 +100,13 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                     event::KeyCode::Down => app.verb_down(),
                     _ => (),
                 },
+                Windows::RequestData => match key.modifiers {
+                    event::KeyModifiers::CONTROL => match key.code {
+                        event::KeyCode::Char('n') => app.add_header("".to_string(), "".to_string()),
+                        _ => (),
+                    },
+                    _ => (),
+                },
             }
         }
     }
@@ -113,12 +126,70 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
         .title("Body")
         .style(Style::default().bg(Color::Black))
         .borders(Borders::ALL);
+    let request_data = Block::default()
+        .title("Request Data")
+        .style(Style::default().bg(Color::Black))
+        .borders(Borders::ALL);
+    let titles: Vec<Spans> = app
+        .req_tabs
+        .req_tabs
+        .iter()
+        .map(|t| {
+            let (first, rest) = t.split_at();
+            Spans::from(vec![
+                Span::styled(first, Style::default().fg(Color::Yellow)),
+                Span::styled(rest, Style::default().fg(Color::White)),
+            ])
+        })
+        .collect();
+    let tabs = Tabs::new(titles)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Request data tabs"),
+        )
+        .select(app.req_tabs.selected_idx)
+        .style(Style::default().fg(Color::White))
+        .highlight_style(
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .bg(Color::Black),
+        );
+
     let l = layout::LayoutBuilder::default(f);
+    // Headers Table
+    match app.req_tabs.selected {
+        app::RequestTabs::Headers(_, _) => {
+            let selected_style = Style::default().add_modifier(Modifier::REVERSED);
+            let normal_style = Style::default().bg(Color::Blue);
+            if let Some(headers) = app.headers() {
+                let headers = headers.clone();
+                let rows = headers.iter().map(|item| {
+                    let height = headers.len() + 1;
+                    let cells = { vec![Cell::from(item.0.clone()), Cell::from(item.1.clone())] };
+                    Row::new(cells).height(height as u16).bottom_margin(1)
+                });
+                let t = Table::new(rows)
+                    .block(request_data)
+                    .highlight_style(selected_style)
+                    .highlight_symbol(">> ")
+                    .widths(&[
+                        Constraint::Percentage(50),
+                        Constraint::Length(30),
+                        Constraint::Min(10),
+                    ]);
+                f.render_stateful_widget(t, l.req_data, &mut TableState::default());
+            }
+        }
+        app::RequestTabs::Params(_, _) => todo!(),
+        app::RequestTabs::Body(_, _) => todo!(),
+    }
     let data = Paragraph::new(app.address().clone().unwrap_or("".to_string()))
         .wrap(tui::widgets::Wrap { trim: true });
     let resp = Paragraph::new(app.response_body().clone()).wrap(tui::widgets::Wrap { trim: true });
-    let verb_str = Paragraph::new(app.verb())
-        .wrap(tui::widgets::Wrap { trim: true });
+    let verb_str = Paragraph::new(app.verb()).wrap(tui::widgets::Wrap { trim: true });
+
+    f.render_widget(tabs, l.req_tabs);
     match app.selected_window {
         Windows::Address => {
             let address = address.border_type(tui::widgets::BorderType::Thick);
@@ -140,6 +211,14 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
         }
         Windows::Verb => {
             let verb = verb.border_type(tui::widgets::BorderType::Thick);
+            let data = data.block(address);
+            let resp = resp.block(body);
+            let verb = verb_str.block(verb);
+            f.render_widget(verb, l.verb);
+            f.render_widget(data, l.address);
+            f.render_widget(resp, l.body);
+        }
+        Windows::RequestData => {
             let data = data.block(address);
             let resp = resp.block(body);
             let verb = verb_str.block(verb);

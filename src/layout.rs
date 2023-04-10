@@ -6,13 +6,20 @@ pub struct LayoutBuilder {
     pub verb: Rect,
     pub address: Rect,
     pub body: Rect,
+    pub req_tabs: Rect,
+    pub req_data: Rect,
 }
 
 impl LayoutBuilder {
     pub fn default<B: Backend>(base: &mut Frame<B>) -> Self {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints(vec![Constraint::Percentage(10), Constraint::Percentage(90)])
+            .constraints(vec![
+                Constraint::Percentage(10), // verb + address
+                Constraint::Percentage(10), // req tabs
+                Constraint::Percentage(40), // req headers/body
+                Constraint::Percentage(40), // response
+            ])
             .split(base.size());
         let chunks_h = Layout::default()
             .direction(Direction::Horizontal)
@@ -21,7 +28,9 @@ impl LayoutBuilder {
         LayoutBuilder {
             verb: chunks_h[0],
             address: chunks_h[1],
-            body: chunks[1],
+            body: chunks[3],
+            req_tabs: chunks[1],
+            req_data: chunks[2],
         }
     }
 }

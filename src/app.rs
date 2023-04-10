@@ -5,6 +5,10 @@ use reqwest::{
 use serde_json::{self, Serializer};
 use std::collections::HashMap;
 use std::convert::TryInto;
+use tui::{
+    style::{Color, Style},
+    text::{Span, Spans},
+};
 
 use crate::{
     request::{HttpVerb, Request},
@@ -14,6 +18,7 @@ use crate::{
 pub enum Windows {
     Address,
     Response,
+    RequestData,
     Verb,
 }
 #[derive(Debug)]
@@ -22,44 +27,72 @@ enum ResponseTabs {
     Headers,
 }
 #[derive(Debug)]
-enum RequestTabs {
-    Body,
-    Headers,
-    Params,
+pub enum RequestTabs<'a> {
+    Headers(usize, &'a str),
+    Params(usize, &'a str),
+    Body(usize, &'a str),
+}
+impl<'a> RequestTabs<'a> {
+    pub fn split_at(&self) -> (&str, &str) {
+        match self {
+            RequestTabs::Headers(_, name)
+            | RequestTabs::Params(_, name)
+            | RequestTabs::Body(_, name) => name.split_at(1),
+        }
+    }
 }
 
 #[derive(Debug)]
 pub enum Error {
     NoRequestErr(usize),
 }
-
-pub struct App {
+#[derive(Debug)]
+pub struct ReqTabs<'a> {
+    pub req_tabs: Vec<&'a RequestTabs<'a>>,
+    pub selected: &'a RequestTabs<'a>,
+    pub selected_idx: usize,
+}
+pub struct App<'a> {
     pub selected_window: Windows,
     client: reqwest::Client,
     current_request_idx: usize,
     requests: Option<Vec<Request>>,
+    pub req_tabs: ReqTabs<'a>,
 }
-impl App {
+
+impl<'a> App<'a> {
     pub fn new() -> Self {
+        let req_tabs = vec![
+            &RequestTabs::Headers(0, "Headers"),
+            &RequestTabs::Body(1, "Body"),
+            &RequestTabs::Params(2, "Params"),
+        ];
         App {
             requests: Some(vec![Request::new()]),
             client: reqwest::Client::new(),
             current_request_idx: 0,
             selected_window: Windows::Address,
+            req_tabs: ReqTabs {
+                selected: req_tabs[0],
+                req_tabs,
+                selected_idx: 0,
+            },
         }
     }
     pub fn up(&mut self) {
         match self.selected_window {
             Windows::Address => self.selected_window = Windows::Response,
-            Windows::Response => self.selected_window = Windows::Address,
+            Windows::Response => self.selected_window = Windows::RequestData,
             Windows::Verb => (),
+            Windows::RequestData => self.selected_window = Windows::Address,
         };
     }
     pub fn down(&mut self) {
         match self.selected_window {
-            Windows::Address => self.selected_window = Windows::Response,
+            Windows::Address => self.selected_window = Windows::RequestData,
             Windows::Response => self.selected_window = Windows::Address,
-            Windows::Verb => self.selected_window = Windows::Response,
+            Windows::Verb => self.selected_window = Windows::RequestData,
+            Windows::RequestData => self.selected_window = Windows::Response,
         };
     }
     pub fn right(&mut self) {
@@ -67,6 +100,7 @@ impl App {
             Windows::Address => (),
             Windows::Response => (),
             Windows::Verb => self.selected_window = Windows::Address,
+            Windows::RequestData => todo!(),
         };
     }
     pub fn left(&mut self) {
@@ -74,6 +108,7 @@ impl App {
             Windows::Address => self.selected_window = Windows::Verb,
             Windows::Response => (),
             Windows::Verb => (),
+            Windows::RequestData => todo!(),
         };
     }
     fn current_request_as_mut(&mut self) -> Option<&mut Request> {
@@ -93,6 +128,17 @@ impl App {
             return Some(req.address.to_string());
         };
         None
+    }
+    pub fn add_header(&mut self, k: String, v: String) {
+        if let Some(req) = self.current_request_as_mut() {
+            if let Some(ref mut headers) = req.headers {
+                headers.insert(k, v);
+                return;
+            }
+            let mut h = HashMap::new();
+            h.insert(k, v);
+            req.headers = Some(h);
+        }
     }
     pub fn pop_address(&mut self) {
         if let Some(ref mut r) = self.current_request_as_mut() {
@@ -123,10 +169,16 @@ impl App {
     pub fn response_body(&self) -> String {
         if let Some(r) = self.current_request() {
             if let Some(ref res) = r.response {
-                return res.body.clone().unwrap_or("".to_string())
+                return res.body.clone().unwrap_or("".to_string());
             };
         }
         "".to_string()
+    }
+    pub fn headers(&self) -> Option<HashMap<String, String>> {
+        if let Some(req) = self.current_request() {
+            return req.headers.clone().or(None);
+        }
+        None
     }
     pub async fn call_request(&mut self) -> Result<String, Error> {
         if let Some(requests) = &mut self.requests {
@@ -238,5 +290,19 @@ impl App {
             }
         }
         Err(Error::NoRequestErr(0))
+    }
+    pub fn change_request_tab(&mut self) {
+        let mut idx: usize;
+        match self.req_tabs.selected {
+            RequestTabs::Headers(index, _)
+            | RequestTabs::Params(index, _)
+            | RequestTabs::Body(index, _) => idx = *index,
+        }
+        idx += 1;
+        if idx == self.req_tabs.req_tabs.len() {
+            idx = 0;
+            self.req_tabs.selected = self.req_tabs.req_tabs[0]
+        }
+        self.req_tabs.selected_idx = idx;
     }
 }
