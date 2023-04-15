@@ -7,16 +7,17 @@ use tokio;
 
 use app::{App, Windows};
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEvent},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use tui::{
     backend::{Backend, CrosstermBackend},
+    layout::Constraint,
     style::{Color, Modifier, Style},
     text::{Span, Spans},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, Tabs, ListState, TableState},
-    Frame, Terminal, layout::Constraint,
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Tabs},
+    Frame, Terminal,
 };
 
 #[tokio::main]
@@ -100,13 +101,37 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                     event::KeyCode::Down => app.verb_down(),
                     _ => (),
                 },
-                Windows::RequestData => match key.modifiers {
-                    event::KeyModifiers::CONTROL => match key.code {
-                        event::KeyCode::Char('n') => app.add_header("".to_string(), "".to_string()),
+                Windows::RequestData => {
+                    if app.has_new_header() {
+                        match key.code {
+                            event::KeyCode::Char(x) => app.add_to_kv(x),
+                            event::KeyCode::Backspace => {
+                                app.remove_from_kv();
+                            }
+                            event::KeyCode::Tab => app.change_active(),
+                            _ => (),
+                        }
+                    }
+                    match key.modifiers {
+                        event::KeyModifiers::CONTROL => match key.code {
+                            event::KeyCode::Char('n') => app.initiate_new_header(),
+                            _ => (),
+                        },
                         _ => (),
-                    },
-                    _ => (),
-                },
+                    };
+                    match key.code {
+                        event::KeyCode::Esc => app.remove_new_header(),
+                        event::KeyCode::Enter => {
+                            if app.is_key_active() {
+                                app.add_header_key();
+                            } else {
+                                app.add_header_value();
+                                app.remove_new_header();
+                            }
+                        }
+                        _ => (),
+                    }
+                }
             }
         }
     }
@@ -114,22 +139,11 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
 }
 
 fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
-    let address = Block::default()
-        .title("Address")
-        .style(Style::default().bg(Color::Black))
-        .borders(Borders::ALL);
-    let verb = Block::default()
-        .title("Verb")
-        .style(Style::default().bg(Color::Black))
-        .borders(Borders::ALL);
-    let body = Block::default()
-        .title("Body")
-        .style(Style::default().bg(Color::Black))
-        .borders(Borders::ALL);
-    let request_data = Block::default()
-        .title("Request Data")
-        .style(Style::default().bg(Color::Black))
-        .borders(Borders::ALL);
+    let address = default_block("Address");
+    let verb = default_block("Verb");
+    let body = default_block("Body");
+    let request_data = default_block("Request Data");
+
     let titles: Vec<Spans> = app
         .req_tabs
         .req_tabs
@@ -156,10 +170,99 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
                 .bg(Color::Black),
         );
 
-    let l = layout::LayoutBuilder::default(f);
+    let l = layout::LayoutBuilder::default(f, app.has_new_header());
+    let data = Paragraph::new(app.address().clone().unwrap_or("".to_string()))
+        .wrap(tui::widgets::Wrap { trim: true });
+    let resp = Paragraph::new(app.response_body().clone()).wrap(tui::widgets::Wrap { trim: true });
+    let verb_str = Paragraph::new(app.verb()).wrap(tui::widgets::Wrap { trim: true });
+
+    f.render_widget(tabs, l.req_tabs);
+
+    match app.selected_window {
+        Windows::Address => {
+            let address = address.border_type(tui::widgets::BorderType::Thick);
+            let data = data.block(address);
+            let resp = resp.block(body);
+            let verb = verb_str.block(verb);
+            handle_request_data(app, f, request_data, &l);
+            f.render_widget(verb, l.verb);
+            f.render_widget(data, l.address);
+            f.render_widget(resp, l.body);
+        }
+        Windows::Response => {
+            let body = body.border_type(tui::widgets::BorderType::Thick);
+            let data = data.block(address);
+            let resp = resp.block(body);
+            let verb = verb_str.block(verb);
+            handle_request_data(app, f, request_data, &l);
+            f.render_widget(verb, l.verb);
+            f.render_widget(data, l.address);
+            f.render_widget(resp, l.body);
+        }
+        Windows::Verb => {
+            let verb = verb.border_type(tui::widgets::BorderType::Thick);
+            let data = data.block(address);
+            let resp = resp.block(body);
+            let verb = verb_str.block(verb);
+            handle_request_data(app, f, request_data, &l);
+            f.render_widget(verb, l.verb);
+            f.render_widget(data, l.address);
+            f.render_widget(resp, l.body);
+        }
+        Windows::RequestData => {
+            let data = data.block(address);
+            let resp = resp.block(body);
+            let verb = verb_str.block(verb);
+
+            handle_request_data(
+                app,
+                f,
+                request_data.border_type(tui::widgets::BorderType::Thick),
+                &l,
+            );
+            f.render_widget(verb, l.verb);
+            f.render_widget(data, l.address);
+            f.render_widget(resp, l.body);
+        }
+    }
+}
+
+fn default_block(name: &str) -> Block {
+    Block::default()
+        .title(name)
+        .style(Style::default().bg(Color::Black))
+        .borders(Borders::ALL)
+}
+
+fn handle_request_data<B: Backend>(
+    app: &App,
+    f: &mut Frame<B>,
+    b: Block,
+    r: &layout::LayoutBuilder,
+) {
     // Headers Table
     match app.req_tabs.selected {
         app::RequestTabs::Headers(_, _) => {
+            if app.has_new_header() {
+                if let Some(h) = &r.new_header {
+                    let mut key_block = default_block("Key");
+                    let mut value_block = default_block("Value");
+                    if app.is_key_active() {
+                        key_block = key_block.border_type(tui::widgets::BorderType::Thick);
+                    } else {
+                        value_block = value_block.border_type(tui::widgets::BorderType::Thick);
+                    }
+                    let k = Paragraph::new(app.new_headers()[0].clone())
+                        .wrap(tui::widgets::Wrap { trim: true })
+                        .block(key_block);
+                    let v = Paragraph::new(app.new_headers()[1].clone())
+                        .wrap(tui::widgets::Wrap { trim: true })
+                        .block(value_block);
+
+                    f.render_widget(k, h.key);
+                    f.render_widget(v, h.value);
+                };
+            };
             let selected_style = Style::default().add_modifier(Modifier::REVERSED);
             let normal_style = Style::default().bg(Color::Blue);
             if let Some(headers) = app.headers() {
@@ -170,7 +273,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
                     Row::new(cells).height(height as u16).bottom_margin(1)
                 });
                 let t = Table::new(rows)
-                    .block(request_data)
+                    .block(b)
                     .highlight_style(selected_style)
                     .highlight_symbol(">> ")
                     .widths(&[
@@ -178,53 +281,12 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
                         Constraint::Length(30),
                         Constraint::Min(10),
                     ]);
-                f.render_stateful_widget(t, l.req_data, &mut TableState::default());
+                f.render_stateful_widget(t, r.req_data, &mut TableState::default());
+            } else {
+                f.render_widget(b, r.req_data);
             }
         }
-        app::RequestTabs::Params(_, _) => todo!(),
-        app::RequestTabs::Body(_, _) => todo!(),
-    }
-    let data = Paragraph::new(app.address().clone().unwrap_or("".to_string()))
-        .wrap(tui::widgets::Wrap { trim: true });
-    let resp = Paragraph::new(app.response_body().clone()).wrap(tui::widgets::Wrap { trim: true });
-    let verb_str = Paragraph::new(app.verb()).wrap(tui::widgets::Wrap { trim: true });
-
-    f.render_widget(tabs, l.req_tabs);
-    match app.selected_window {
-        Windows::Address => {
-            let address = address.border_type(tui::widgets::BorderType::Thick);
-            let data = data.block(address);
-            let resp = resp.block(body);
-            let verb = verb_str.block(verb);
-            f.render_widget(verb, l.verb);
-            f.render_widget(data, l.address);
-            f.render_widget(resp, l.body);
-        }
-        Windows::Response => {
-            let body = body.border_type(tui::widgets::BorderType::Thick);
-            let data = data.block(address);
-            let resp = resp.block(body);
-            let verb = verb_str.block(verb);
-            f.render_widget(verb, l.verb);
-            f.render_widget(data, l.address);
-            f.render_widget(resp, l.body);
-        }
-        Windows::Verb => {
-            let verb = verb.border_type(tui::widgets::BorderType::Thick);
-            let data = data.block(address);
-            let resp = resp.block(body);
-            let verb = verb_str.block(verb);
-            f.render_widget(verb, l.verb);
-            f.render_widget(data, l.address);
-            f.render_widget(resp, l.body);
-        }
-        Windows::RequestData => {
-            let data = data.block(address);
-            let resp = resp.block(body);
-            let verb = verb_str.block(verb);
-            f.render_widget(verb, l.verb);
-            f.render_widget(data, l.address);
-            f.render_widget(resp, l.body);
-        }
+        app::RequestTabs::Params(_, _) => f.render_widget(b, r.req_data),
+        app::RequestTabs::Body(_, _) => f.render_widget(b, r.req_data),
     }
 }

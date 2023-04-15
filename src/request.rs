@@ -35,6 +35,51 @@ impl HttpVerb {
         }
     }
 }
+#[derive(Debug)]
+pub struct KVElement {
+    pub text: String,
+    pub active: bool,
+}
+#[derive(Debug)]
+pub struct KV {
+    pub key: KVElement,
+    pub value: KVElement,
+}
+impl KV {
+    pub fn new() -> Self {
+        KV {
+            key: KVElement {
+                text: "".to_string(),
+                active: true,
+            },
+            value: KVElement {
+                text: "".to_string(),
+                active: false,
+            },
+        }
+    }
+    pub fn change_active(&mut self) {
+        self.value.active = !self.value.active;
+        self.key.active = !self.key.active;
+    }
+    pub fn add_to_active(&mut self, ch: char) {
+        if self.key.active {
+            self.key.text.push(ch);
+            return;
+        }
+        self.value.text.push(ch)
+    }
+    pub fn remove_from_active(&mut self) {
+        if self.key.active {
+            self.key.text.pop();
+            return;
+        }
+        self.value.text.pop();
+    }
+    pub fn is_key_active(&self) -> bool {
+        return self.key.active;
+    }
+}
 
 #[derive(Debug)]
 pub struct Request {
@@ -44,6 +89,7 @@ pub struct Request {
     pub address: Address,
     pub verb: HttpVerb,
     pub response: Option<Response>,
+    pub new_header: Option<KV>,
 }
 impl Request {
     pub fn new() -> Self {
@@ -51,9 +97,12 @@ impl Request {
             headers: None,
             params: None,
             body: None,
-            address: Address { uri: "".to_string() },
+            address: Address {
+                uri: "".to_string(),
+            },
             verb: HttpVerb::GET,
             response: None,
+            new_header: None,
         }
     }
 }

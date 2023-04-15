@@ -11,7 +11,7 @@ use tui::{
 };
 
 use crate::{
-    request::{HttpVerb, Request},
+    request::{self, HttpVerb, Request},
     response::Response,
 };
 #[derive(Debug)]
@@ -79,6 +79,35 @@ impl<'a> App<'a> {
             },
         }
     }
+    pub fn has_new_header(&self) -> bool {
+        if let Some(x) = self.current_request() {
+            match x.new_header {
+                Some(_) => return true,
+                None => return false,
+            }
+        }
+        return false;
+    }
+    pub fn new_headers(&self) -> [String; 2] {
+        if let Some(req) = self.current_request() {
+            if let Some(h) = &req.new_header {
+                return [h.key.text.clone(), h.value.text.clone()]
+            } else {
+                return ["bagh".to_string(), "".to_string()]
+            };
+        };
+        ["baghoooo".to_string(), "".to_string()]
+    }
+    pub fn initiate_new_header(&mut self) {
+        if let Some(req) = self.current_request_as_mut() {
+            req.new_header = Some(request::KV::new());
+        }
+    }
+    pub fn remove_new_header(&mut self) {
+        if let Some(req) = self.current_request_as_mut() {
+            req.new_header = None;
+        }
+    }
     pub fn up(&mut self) {
         match self.selected_window {
             Windows::Address => self.selected_window = Windows::Response,
@@ -138,6 +167,39 @@ impl<'a> App<'a> {
             let mut h = HashMap::new();
             h.insert(k, v);
             req.headers = Some(h);
+        }
+    }
+    pub fn add_header_key(&mut self) {
+        let v = "".to_string();
+        if let Some(req) = self.current_request_as_mut() {
+            if let Some(ref mut headers) = req.new_header {
+                if headers.key.text == "".to_string() {
+                    return;
+                }
+                if let Some(ref mut h) = req.headers {
+                    h.insert(headers.key.text.clone(), v);
+                    return;
+                }
+                let mut h = HashMap::new();
+                h.insert(headers.key.text.clone(), v);
+                req.headers = Some(h);
+            }
+        }
+    }
+    pub fn add_header_value(&mut self) {
+        if let Some(req) = self.current_request_as_mut() {
+            if let Some(ref mut headers) = req.new_header {
+                if headers.key.text == "".to_string() {
+                    return;
+                }
+                if let Some(ref mut h) = req.headers {
+                    h.insert(headers.key.text.clone(), headers.value.text.clone());
+                    return;
+                }
+                let mut h = HashMap::new();
+                h.insert(headers.key.text.clone(), headers.value.text.clone());
+                req.headers = Some(h);
+            }
         }
     }
     pub fn pop_address(&mut self) {
@@ -304,5 +366,36 @@ impl<'a> App<'a> {
             self.req_tabs.selected = self.req_tabs.req_tabs[0]
         }
         self.req_tabs.selected_idx = idx;
+    }
+    pub fn add_to_kv(&mut self, ch: char) {
+        if let Some(req) = self.current_request_as_mut() {
+            if let Some(h) = &mut req.new_header {
+                h.add_to_active(ch);
+            }
+        }
+    }
+    pub fn remove_from_kv(&mut self) {
+        if let Some(req) = self.current_request_as_mut() {
+            if let Some(h) = &mut req.new_header {
+                h.remove_from_active();
+            }
+        }
+    }
+    pub fn change_active(&mut self) {
+        if let Some(req) = self.current_request_as_mut() {
+            if let Some(h) = &mut req.new_header {
+                h.change_active();
+            }
+        }
+    }
+    pub fn is_key_active(&self) -> bool {
+        if let Some(req) = self.current_request() {
+            if let Some(h) = &req.new_header {
+                return h.is_key_active();
+            } else {
+                false
+            };
+        }
+        false
     }
 }
