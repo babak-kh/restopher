@@ -88,12 +88,21 @@ impl<'a> App<'a> {
         }
         return false;
     }
+    pub fn has_new_param(&self) -> bool {
+        if let Some(x) = self.current_request() {
+            match x.new_param {
+                Some(_) => return true,
+                None => return false,
+            }
+        }
+        return false;
+    }
     pub fn new_headers(&self) -> [String; 2] {
         if let Some(req) = self.current_request() {
             if let Some(h) = &req.new_header {
-                return [h.key.text.clone(), h.value.text.clone()]
+                return [h.key.text.clone(), h.value.text.clone()];
             } else {
-                return ["bagh".to_string(), "".to_string()]
+                return ["bagh".to_string(), "".to_string()];
             };
         };
         ["baghoooo".to_string(), "".to_string()]
@@ -106,6 +115,26 @@ impl<'a> App<'a> {
     pub fn remove_new_header(&mut self) {
         if let Some(req) = self.current_request_as_mut() {
             req.new_header = None;
+        }
+    }
+    pub fn new_param(&self) -> [String; 2] {
+        if let Some(req) = self.current_request() {
+            if let Some(h) = &req.new_param {
+                return [h.key.text.clone(), h.value.text.clone()];
+            } else {
+                return ["bagh".to_string(), "".to_string()];
+            };
+        };
+        ["baghoooo".to_string(), "".to_string()]
+    }
+    pub fn initiate_new_param(&mut self) {
+        if let Some(req) = self.current_request_as_mut() {
+            req.new_param = Some(request::KV::new());
+        }
+    }
+    pub fn remove_new_param(&mut self) {
+        if let Some(req) = self.current_request_as_mut() {
+            req.new_param = None;
         }
     }
     pub fn up(&mut self) {
@@ -202,6 +231,39 @@ impl<'a> App<'a> {
             }
         }
     }
+    pub fn add_param_key(&mut self) {
+        let v = "".to_string();
+        if let Some(req) = self.current_request_as_mut() {
+            if let Some(ref mut param) = req.new_param {
+                if param.key.text == "".to_string() {
+                    return;
+                }
+                if let Some(ref mut h) = req.headers {
+                    h.insert(param.key.text.clone(), v);
+                    return;
+                }
+                let mut h = HashMap::new();
+                h.insert(param.key.text.clone(), v);
+                req.params = Some(h);
+            }
+        }
+    }
+    pub fn add_param_value(&mut self) {
+        if let Some(req) = self.current_request_as_mut() {
+            if let Some(ref mut params) = req.new_param {
+                if params.key.text == "".to_string() {
+                    return;
+                }
+                if let Some(ref mut h) = req.params {
+                    h.insert(params.key.text.clone(), params.value.text.clone());
+                    return;
+                }
+                let mut h = HashMap::new();
+                h.insert(params.key.text.clone(), params.value.text.clone());
+                req.params = Some(h);
+            }
+        }
+    }
     pub fn pop_address(&mut self) {
         if let Some(ref mut r) = self.current_request_as_mut() {
             r.address.pop();
@@ -239,6 +301,12 @@ impl<'a> App<'a> {
     pub fn headers(&self) -> Option<HashMap<String, String>> {
         if let Some(req) = self.current_request() {
             return req.headers.clone().or(None);
+        }
+        None
+    }
+    pub fn params(&self) -> Option<HashMap<String, String>> {
+        if let Some(req) = self.current_request() {
+            return req.params.clone().or(None);
         }
         None
     }
@@ -366,35 +434,87 @@ impl<'a> App<'a> {
             self.req_tabs.selected = self.req_tabs.req_tabs[0]
         }
         self.req_tabs.selected_idx = idx;
+        self.req_tabs.selected = self.req_tabs.req_tabs[idx]
     }
+
     pub fn add_to_kv(&mut self, ch: char) {
-        if let Some(req) = self.current_request_as_mut() {
-            if let Some(h) = &mut req.new_header {
-                h.add_to_active(ch);
+        match self.req_tabs.selected {
+            RequestTabs::Headers(_, _) => {
+                if let Some(req) = self.current_request_as_mut() {
+                    if let Some(h) = &mut req.new_header {
+                        h.add_to_active(ch);
+                    }
+                }
             }
+            RequestTabs::Params(_, _) => {
+                if let Some(req) = self.current_request_as_mut() {
+                    if let Some(h) = &mut req.new_param {
+                        h.add_to_active(ch);
+                    }
+                }
+            }
+            _ => (),
         }
     }
     pub fn remove_from_kv(&mut self) {
-        if let Some(req) = self.current_request_as_mut() {
-            if let Some(h) = &mut req.new_header {
-                h.remove_from_active();
+        match self.req_tabs.selected {
+            RequestTabs::Headers(_, _) => {
+                if let Some(req) = self.current_request_as_mut() {
+                    if let Some(h) = &mut req.new_header {
+                        h.remove_from_active();
+                    }
+                }
             }
+            RequestTabs::Params(_, _) => {
+                if let Some(req) = self.current_request_as_mut() {
+                    if let Some(h) = &mut req.new_param {
+                        h.remove_from_active();
+                    }
+                }
+            }
+            _ => (),
         }
     }
     pub fn change_active(&mut self) {
-        if let Some(req) = self.current_request_as_mut() {
-            if let Some(h) = &mut req.new_header {
-                h.change_active();
+        match self.req_tabs.selected {
+            RequestTabs::Headers(_, _) => {
+                if let Some(req) = self.current_request_as_mut() {
+                    if let Some(h) = &mut req.new_header {
+                        h.change_active();
+                    }
+                }
             }
+            RequestTabs::Params(_, _) => {
+                if let Some(req) = self.current_request_as_mut() {
+                    if let Some(h) = &mut req.new_param {
+                        h.change_active();
+                    }
+                }
+            }
+            _ => (),
         }
     }
     pub fn is_key_active(&self) -> bool {
-        if let Some(req) = self.current_request() {
-            if let Some(h) = &req.new_header {
-                return h.is_key_active();
-            } else {
-                false
-            };
+        match self.req_tabs.selected {
+            RequestTabs::Headers(_, _) => {
+                if let Some(req) = self.current_request() {
+                    if let Some(h) = &req.new_header {
+                        return h.is_key_active();
+                    } else {
+                        return false;
+                    };
+                };
+            }
+            RequestTabs::Params(_, _) => {
+                if let Some(req) = self.current_request() {
+                    if let Some(h) = &req.new_param {
+                        return h.is_key_active();
+                    } else {
+                        return false;
+                    };
+                }
+            }
+            _ => (),
         }
         false
     }

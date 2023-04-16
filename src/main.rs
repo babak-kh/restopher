@@ -71,69 +71,97 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                         app.change_request_tab();
                         continue;
                     }
+                    event::KeyCode::Char('a') => {
+                        app.call_request().await.unwrap();
+                        continue;
+                    }
                     _ => (),
                 },
                 _ => (),
             }
             match app.selected_window {
-                Windows::Address => {
-                    match key.modifiers {
-                        event::KeyModifiers::CONTROL => match key.code {
-                            event::KeyCode::Char('a') => {
-                                app.call_request().await.unwrap();
-                                continue;
-                            }
-                            _ => (),
-                        },
-                        _ => (),
+                Windows::Address => match key.code {
+                    event::KeyCode::Char(x) => app.add_address(x),
+                    event::KeyCode::Backspace => {
+                        app.pop_address();
                     }
-                    match key.code {
-                        event::KeyCode::Char(x) => app.add_address(x),
-                        event::KeyCode::Backspace => {
-                            app.pop_address();
-                        }
-                        _ => (),
-                    }
-                }
+                    _ => (),
+                },
+
                 Windows::Response => (),
                 Windows::Verb => match key.code {
                     event::KeyCode::Up => app.verb_up(),
                     event::KeyCode::Down => app.verb_down(),
                     _ => (),
                 },
-                Windows::RequestData => {
-                    if app.has_new_header() {
+
+                Windows::RequestData => match app.req_tabs.selected {
+                    app::RequestTabs::Headers(_, _) => {
+                        if app.has_new_header() {
+                            match key.code {
+                                event::KeyCode::Char(x) => app.add_to_kv(x),
+                                event::KeyCode::Backspace => {
+                                    app.remove_from_kv();
+                                }
+                                event::KeyCode::Tab => app.change_active(),
+                                _ => (),
+                            };
+                        };
+                        match key.modifiers {
+                            event::KeyModifiers::CONTROL => match key.code {
+                                event::KeyCode::Char('n') => app.initiate_new_header(),
+                                _ => (),
+                            },
+                            _ => (),
+                        };
                         match key.code {
-                            event::KeyCode::Char(x) => app.add_to_kv(x),
-                            event::KeyCode::Backspace => {
-                                app.remove_from_kv();
+                            event::KeyCode::Esc => app.remove_new_header(),
+                            event::KeyCode::Enter => {
+                                if app.is_key_active() {
+                                    app.add_header_key();
+                                } else {
+                                    app.add_header_value();
+                                    app.remove_new_header();
+                                }
                             }
-                            event::KeyCode::Tab => app.change_active(),
                             _ => (),
-                        }
+                        };
                     }
-                    match key.modifiers {
-                        event::KeyModifiers::CONTROL => match key.code {
-                            event::KeyCode::Char('n') => app.initiate_new_header(),
+                    app::RequestTabs::Params(_, _) => {
+                        if app.has_new_param() {
+                            match key.code {
+                                event::KeyCode::Char(x) => app.add_to_kv(x),
+                                event::KeyCode::Backspace => {
+                                    app.remove_from_kv();
+                                }
+                                event::KeyCode::Tab => app.change_active(),
+                                _ => (),
+                            };
+                        };
+                        match key.modifiers {
+                            event::KeyModifiers::CONTROL => match key.code {
+                                event::KeyCode::Char('n') => app.initiate_new_param(),
+                                _ => (),
+                            },
                             _ => (),
-                        },
-                        _ => (),
-                    };
-                    match key.code {
-                        event::KeyCode::Esc => app.remove_new_header(),
-                        event::KeyCode::Enter => {
-                            if app.is_key_active() {
-                                app.add_header_key();
-                            } else {
-                                app.add_header_value();
-                                app.remove_new_header();
+                        };
+                        match key.code {
+                            event::KeyCode::Esc => app.remove_new_param(),
+                            event::KeyCode::Enter => {
+                                if app.is_key_active() {
+                                    app.add_param_key();
+                                } else {
+                                    app.add_param_value();
+                                    app.remove_new_param();
+                                }
                             }
-                        }
-                        _ => (),
+                            _ => (),
+                        };
                     }
-                }
-            }
-        }
+                    app::RequestTabs::Body(_, _) => (),
+                },
+            };
+        };
     }
     Ok(())
 }
@@ -141,7 +169,7 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
 fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
     let address = default_block("Address");
     let verb = default_block("Verb");
-    let body = default_block("Body");
+    let body = default_block("Response");
     let request_data = default_block("Request Data");
 
     let titles: Vec<Spans> = app
@@ -170,7 +198,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
                 .bg(Color::Black),
         );
 
-    let l = layout::LayoutBuilder::default(f, app.has_new_header());
+    let l = layout::LayoutBuilder::default(f, app.has_new_header(), app.has_new_param());
     let data = Paragraph::new(app.address().clone().unwrap_or("".to_string()))
         .wrap(tui::widgets::Wrap { trim: true });
     let resp = Paragraph::new(app.response_body().clone()).wrap(tui::widgets::Wrap { trim: true });
@@ -286,7 +314,51 @@ fn handle_request_data<B: Backend>(
                 f.render_widget(b, r.req_data);
             }
         }
-        app::RequestTabs::Params(_, _) => f.render_widget(b, r.req_data),
+        app::RequestTabs::Params(_, _) => {
+            if app.has_new_param() {
+                if let Some(h) = &r.new_header {
+                    let mut key_block = default_block("Key");
+                    let mut value_block = default_block("Value");
+                    if app.is_key_active() {
+                        key_block = key_block.border_type(tui::widgets::BorderType::Thick);
+                    } else {
+                        value_block = value_block.border_type(tui::widgets::BorderType::Thick);
+                    }
+                    let k = Paragraph::new(app.new_param()[0].clone())
+                        .wrap(tui::widgets::Wrap { trim: true })
+                        .block(key_block);
+                    let v = Paragraph::new(app.new_param()[1].clone())
+                        .wrap(tui::widgets::Wrap { trim: true })
+                        .block(value_block);
+
+                    f.render_widget(k, h.key);
+                    f.render_widget(v, h.value);
+                };
+            };
+            let selected_style = Style::default().add_modifier(Modifier::REVERSED);
+            let normal_style = Style::default().bg(Color::Blue);
+            if let Some(headers) = app.params() {
+                let headers = headers.clone();
+                let rows = headers.iter().map(|item| {
+                    let height = headers.len() + 1;
+                    let cells = { vec![Cell::from(item.0.clone()), Cell::from(item.1.clone())] };
+                    Row::new(cells).height(height as u16).bottom_margin(1)
+                });
+                let t = Table::new(rows)
+                    .block(b)
+                    .highlight_style(selected_style)
+                    .highlight_symbol(">> ")
+                    .widths(&[
+                        Constraint::Percentage(50),
+                        Constraint::Length(30),
+                        Constraint::Min(10),
+                    ]);
+                f.render_stateful_widget(t, r.req_data, &mut TableState::default());
+            } else {
+                f.render_widget(b, r.req_data);
+            }
+        }
+
         app::RequestTabs::Body(_, _) => f.render_widget(b, r.req_data),
     }
 }

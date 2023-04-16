@@ -90,6 +90,7 @@ pub struct Request {
     pub verb: HttpVerb,
     pub response: Option<Response>,
     pub new_header: Option<KV>,
+    pub new_param: Option<KV>,
 }
 impl Request {
     pub fn new() -> Self {
@@ -103,6 +104,7 @@ impl Request {
             verb: HttpVerb::GET,
             response: None,
             new_header: None,
+            new_param: None,
         }
     }
 }

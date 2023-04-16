@@ -16,7 +16,7 @@ pub struct KV {
 }
 
 impl LayoutBuilder {
-    pub fn default<B: Backend>(base: &mut Frame<B>, with_new_header: bool) -> Self {
+    pub fn default<B: Backend>(base: &mut Frame<B>, with_new_header: bool, with_new_param: bool) -> Self {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![
@@ -32,7 +32,7 @@ impl LayoutBuilder {
             .split(chunks[0]);
         let mut req_data = chunks[2];
         let mut new_header: Option<KV> = None;
-        if with_new_header {
+        if with_new_header | with_new_param {
             let new_header_layout = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints(vec![Constraint::Percentage(80), Constraint::Percentage(20)])
@@ -47,7 +47,7 @@ impl LayoutBuilder {
                 key: kv_layout[0],
                 value: kv_layout[1],
             });
-        }
+        } 
         LayoutBuilder {
             verb: chunks_h[0],
             address: chunks_h[1],
