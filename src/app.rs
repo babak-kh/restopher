@@ -313,7 +313,7 @@ impl<'a> App<'a> {
     pub async fn call_request(&mut self) -> Result<String, Error> {
         if let Some(requests) = &mut self.requests {
             let req = &mut requests[self.current_request_idx];
-            let headers: HeaderMap = (&req.headers.clone().unwrap())
+            let headers: HeaderMap = (&req.headers.clone().unwrap_or(HashMap::new()))
                 .try_into()
                 .expect("valid headers");
             match req.verb {
