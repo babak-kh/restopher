@@ -85,8 +85,8 @@ impl KV {
 
 #[derive(Debug)]
 pub struct Request {
-    pub headers: Option<HashMap<String, String>>,
-    pub params: Option<HashMap<String, String>>,
+    pub headers: Option<Vec<(String, String, bool)>>,
+    pub params: Option<Vec<(String, String, bool)>>,
     pub body: Option<String>,
     pub address: Address,
     pub verb: HttpVerb,
@@ -110,10 +110,27 @@ impl Request {
         }
     }
     pub fn handle_headers(&self) -> HeaderMap {
-        let headers: HeaderMap = (&self.headers.clone().unwrap_or(HashMap::new()))
-            .try_into()
-            .expect("valid headers");
+        let h = self
+            .headers
+            .clone()
+            .unwrap_or(vec![("".to_string(), "".to_string(), false)])
+            .iter()
+            .filter(|item| item.2)
+            .map(|item| (item.0.clone(), item.1.clone()))
+            .collect::<HashMap<String,String>>();
+        let headers: HeaderMap = (&h).try_into().unwrap();
         headers
+    }
+    pub fn handle_params(&self) -> HashMap<String,String> {
+        let h = self
+            .params
+            .clone()
+            .unwrap_or(vec![("".to_string(), "".to_string(), false)])
+            .iter()
+            .filter(|item| item.2)
+            .map(|item| (item.0.clone(), item.1.clone()))
+            .collect::<HashMap<String,String>>();
+        h
     }
     pub fn handle_json_body(&self) -> Result<serde_json::Value, crate::app::Error> {
         serde_json::from_str(&self.body.clone().unwrap_or("".to_string()))

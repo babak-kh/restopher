@@ -1,18 +1,9 @@
-use reqwest::{
-    get,
-    header::{self, HeaderMap},
-};
 use serde_json::{self, Serializer};
 use std::collections::HashMap;
-use std::convert::TryInto;
-use tui::{
-    style::{Color, Style},
-    text::{Span, Spans},
-};
 
 use crate::{
     request::{self, HttpVerb, Request},
-    response::{Response, self},
+    response::{self, Response},
 };
 #[derive(Debug)]
 pub enum Windows {
@@ -83,8 +74,10 @@ pub struct App<'a> {
     client: reqwest::Client,
     current_request_idx: usize,
     requests: Option<Vec<Request>>,
+    pub temp_header_param_idx: usize,
     pub req_tabs: ReqTabs<'a>,
     pub resp_tabs: RespTabs<'a>,
+    pub error_pop_up: (bool, Option<Error>),
 }
 
 impl<'a> App<'a> {
@@ -113,6 +106,8 @@ impl<'a> App<'a> {
                 resp_tabs,
                 selected_idx: 0,
             },
+            error_pop_up: (false, None),
+            temp_header_param_idx: 0,
         }
     }
     pub fn has_new_header(&self) -> bool {
@@ -138,10 +133,10 @@ impl<'a> App<'a> {
             if let Some(h) = &req.new_header {
                 return [h.key.text.clone(), h.value.text.clone()];
             } else {
-                return ["bagh".to_string(), "".to_string()];
+                return ["".to_string(), "".to_string()];
             };
         };
-        ["baghoooo".to_string(), "".to_string()]
+        ["".to_string(), "".to_string()]
     }
     pub fn initiate_new_header(&mut self) {
         if let Some(req) = self.current_request_as_mut() {
@@ -158,10 +153,10 @@ impl<'a> App<'a> {
             if let Some(h) = &req.new_param {
                 return [h.key.text.clone(), h.value.text.clone()];
             } else {
-                return ["bagh".to_string(), "".to_string()];
+                return ["".to_string(), "".to_string()];
             };
         };
-        ["baghoooo".to_string(), "".to_string()]
+        ["".to_string(), "".to_string()]
     }
     pub fn initiate_new_param(&mut self) {
         if let Some(req) = self.current_request_as_mut() {
@@ -194,7 +189,7 @@ impl<'a> App<'a> {
             Windows::Address => (),
             Windows::Response => (),
             Windows::Verb => self.selected_window = Windows::Address,
-            Windows::RequestData => todo!(),
+            Windows::RequestData => (),
         };
     }
     pub fn left(&mut self) {
@@ -202,7 +197,7 @@ impl<'a> App<'a> {
             Windows::Address => self.selected_window = Windows::Verb,
             Windows::Response => (),
             Windows::Verb => (),
-            Windows::RequestData => todo!(),
+            Windows::RequestData => (),
         };
     }
     fn current_request_as_mut(&mut self) -> Option<&mut Request> {
@@ -226,27 +221,26 @@ impl<'a> App<'a> {
     pub fn add_header(&mut self, k: String, v: String) {
         if let Some(req) = self.current_request_as_mut() {
             if let Some(ref mut headers) = req.headers {
-                headers.insert(k, v);
+                headers.push((k, v, true));
                 return;
             }
-            let mut h = HashMap::new();
-            h.insert(k, v);
+            let mut h: Vec<(String, String, bool)> = Vec::new();
+            h.push((k, v, true));
             req.headers = Some(h);
         }
     }
     pub fn add_header_key(&mut self) {
-        let v = "".to_string();
         if let Some(req) = self.current_request_as_mut() {
             if let Some(ref mut headers) = req.new_header {
-                if headers.key.text == "".to_string() {
+                if headers.key.text == "".to_string() || headers.value.text == "".to_string() {
                     return;
                 }
                 if let Some(ref mut h) = req.headers {
-                    h.insert(headers.key.text.clone(), v);
+                    h.push((headers.key.text.clone(), headers.value.text.clone(), true));
                     return;
                 }
-                let mut h = HashMap::new();
-                h.insert(headers.key.text.clone(), v);
+                let mut h: Vec<(String, String, bool)> = Vec::new();
+                h.push((headers.key.text.clone(), headers.value.text.clone(), true));
                 req.headers = Some(h);
             }
         }
@@ -254,32 +248,31 @@ impl<'a> App<'a> {
     pub fn add_header_value(&mut self) {
         if let Some(req) = self.current_request_as_mut() {
             if let Some(ref mut headers) = req.new_header {
-                if headers.key.text == "".to_string() {
+                if headers.key.text == "".to_string() || headers.value.text == "".to_string() {
                     return;
                 }
                 if let Some(ref mut h) = req.headers {
-                    h.insert(headers.key.text.clone(), headers.value.text.clone());
+                    h.push((headers.key.text.clone(), headers.value.text.clone(), true));
                     return;
                 }
-                let mut h = HashMap::new();
-                h.insert(headers.key.text.clone(), headers.value.text.clone());
+                let mut h: Vec<(String, String, bool)> = Vec::new();
+                h.push((headers.key.text.clone(), headers.value.text.clone(), true));
                 req.headers = Some(h);
             }
         }
     }
     pub fn add_param_key(&mut self) {
-        let v = "".to_string();
         if let Some(req) = self.current_request_as_mut() {
-            if let Some(ref mut param) = req.new_param {
-                if param.key.text == "".to_string() {
+            if let Some(ref mut params) = req.new_param {
+                if params.key.text == "".to_string() || params.value.text == "".to_string() {
                     return;
                 }
-                if let Some(ref mut h) = req.headers {
-                    h.insert(param.key.text.clone(), v);
+                if let Some(ref mut h) = req.params {
+                    h.push((params.key.text.clone(), params.value.text.clone(), true));
                     return;
                 }
-                let mut h = HashMap::new();
-                h.insert(param.key.text.clone(), v);
+                let mut h: Vec<(String, String, bool)> = Vec::new();
+                h.push((params.key.text.clone(), params.value.text.clone(), true));
                 req.params = Some(h);
             }
         }
@@ -287,15 +280,15 @@ impl<'a> App<'a> {
     pub fn add_param_value(&mut self) {
         if let Some(req) = self.current_request_as_mut() {
             if let Some(ref mut params) = req.new_param {
-                if params.key.text == "".to_string() {
+                if params.key.text == "".to_string() || params.value.text == "".to_string() {
                     return;
                 }
                 if let Some(ref mut h) = req.params {
-                    h.insert(params.key.text.clone(), params.value.text.clone());
+                    h.push((params.key.text.clone(), params.value.text.clone(), true));
                     return;
                 }
-                let mut h = HashMap::new();
-                h.insert(params.key.text.clone(), params.value.text.clone());
+                let mut h: Vec<(String, String, bool)> = Vec::new();
+                h.push((params.key.text.clone(), params.value.text.clone(), true));
                 req.params = Some(h);
             }
         }
@@ -334,13 +327,21 @@ impl<'a> App<'a> {
         }
         "".to_string()
     }
-    pub fn headers(&self) -> Option<HashMap<String, String>> {
+    pub fn response_status_code(&self) -> i32 {
+        if let Some(r) = self.current_request() {
+            if let Some(ref res) = r.response {
+                return res.status_code.clone();
+            };
+        }
+        0
+    }
+    pub fn headers(&self) -> Option<Vec<(String, String, bool)>> {
         if let Some(req) = self.current_request() {
             return req.headers.clone().or(None);
         }
         None
     }
-    pub fn params(&self) -> Option<HashMap<String, String>> {
+    pub fn params(&self) -> Option<Vec<(String, String, bool)>> {
         if let Some(req) = self.current_request() {
             return req.params.clone().or(None);
         }
@@ -354,7 +355,7 @@ impl<'a> App<'a> {
                     let r = self
                         .client
                         .get(&req.address.to_string())
-                        .query(&req.params.as_ref().unwrap_or(&HashMap::new()))
+                        .query(&req.handle_params())
                         .headers(req.handle_headers())
                         .send()
                         .await
@@ -370,7 +371,7 @@ impl<'a> App<'a> {
                     let r = self
                         .client
                         .post(&req.address.to_string())
-                        .query(&req.params.as_ref().unwrap_or(&HashMap::new()))
+                        .query(&req.handle_params())
                         .headers(req.handle_headers())
                         .json(&req.handle_json_body().map(|_| "".to_string())?)
                         .send()
@@ -387,7 +388,7 @@ impl<'a> App<'a> {
                     let r = self
                         .client
                         .put(&req.address.to_string())
-                        .query(&req.params.as_ref().unwrap_or(&HashMap::new()))
+                        .query(&req.handle_params())
                         .headers(req.handle_headers())
                         .json(&req.handle_json_body().map(|_| "".to_string())?)
                         .send()
@@ -404,7 +405,7 @@ impl<'a> App<'a> {
                     let r = self
                         .client
                         .get(&req.address.to_string())
-                        .query(&req.params.as_ref().unwrap_or(&HashMap::new()))
+                        .query(&req.handle_params())
                         .headers(req.handle_headers())
                         .send()
                         .await
@@ -534,13 +535,66 @@ impl<'a> App<'a> {
         if let Some(req) = self.current_request() {
             if let Some(resp) = &req.response {
                 return resp.headers();
+            };
+            return None;
+        };
+        None
+    }
+    pub fn delete_selected_header(&mut self) {
+        let idx = self.temp_header_param_idx.clone();
+        if let Some(req) = self.current_request_as_mut() {
+            if let Some(headers) = &mut req.headers {
+                if idx <= headers.len() - 1 {
+                    headers.remove(idx);
+                }
             }
-            let mut a = HashMap::new();
-            a.insert("bbbbblsda".to_string(), "adasnd".to_string());
-            return Some(a);
         }
-        let mut a = HashMap::new();
-        a.insert("ccccccc".to_string(), "ddddddd".to_string());
-        Some(a)
+    }
+    pub fn delete_selected_param(&mut self) {
+        let idx = self.temp_header_param_idx.clone();
+        if let Some(req) = self.current_request_as_mut() {
+            if let Some(params) = &mut req.params {
+                if idx <= params.len() - 1 {
+                    params.remove(idx);
+                }
+            }
+        }
+    }
+    pub fn increase_temp_idx(&mut self) {
+        if let Some(req) = self.current_request() {
+            if self.temp_header_param_idx
+                <= std::cmp::max(
+                    req.headers.clone().map_or(0, |v| v.len()),
+                    req.params.clone().map_or(0, |v| v.len()),
+                )
+            {
+                self.temp_header_param_idx += 1;
+            }
+        }
+    }
+    pub fn decrease_temp_idx(&mut self) {
+        if self.temp_header_param_idx >= 1 {
+            self.temp_header_param_idx -= 1;
+        };
+    }
+    pub fn change_activity_selected_param(&mut self) {
+        let idx = self.temp_header_param_idx.clone();
+        if let Some(req) = self.current_request_as_mut() {
+            if let Some(params) = &mut req.params {
+                if idx <= params.len() - 1 {
+                    params[idx].2 = !params[idx].2;
+                }
+            }
+        }
+    }
+    pub fn change_activity_selected_header(&mut self) {
+        let idx = self.temp_header_param_idx.clone();
+        if let Some(req) = self.current_request_as_mut() {
+            if let Some(headers) = &mut req.headers {
+                if idx <= headers.len() - 1 {
+                    headers[idx].2 = !headers[idx].2;
+                }
+            }
+        }
     }
 }

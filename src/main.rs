@@ -13,7 +13,7 @@ use crossterm::{
 };
 use tui::{
     backend::{Backend, CrosstermBackend},
-    layout::Constraint,
+    layout::{Constraint, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Spans},
     widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Tabs},
@@ -69,6 +69,7 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                     }
                     event::KeyCode::Char('t') => {
                         app.change_request_tab();
+                        app.temp_header_param_idx = 0;
                         continue;
                     }
                     event::KeyCode::Char('b') => {
@@ -76,11 +77,25 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                         continue;
                     }
                     event::KeyCode::Char('a') => {
-                        app.call_request().await.unwrap();
+                        app.call_request()
+                            .await
+                            .or_else(|e| {
+                                app.error_pop_up = (true, Some(e));
+                                Ok::<String, app::Error>("done".to_string())
+                            })
+                            .unwrap();
                         continue;
                     }
                     _ => (),
                 },
+                _ => (),
+            }
+            match key.code {
+                event::KeyCode::Esc => {
+                    if app.error_pop_up.0 {
+                        app.error_pop_up = (false, None);
+                    }
+                }
                 _ => (),
             }
             match app.selected_window {
@@ -114,6 +129,9 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                         match key.modifiers {
                             event::KeyModifiers::CONTROL => match key.code {
                                 event::KeyCode::Char('n') => app.initiate_new_header(),
+                                event::KeyCode::Char('d') | event::KeyCode::Delete => {
+                                    app.delete_selected_header()
+                                }
                                 _ => (),
                             },
                             _ => (),
@@ -128,6 +146,9 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                                     app.remove_new_header();
                                 }
                             }
+                            event::KeyCode::Char('j') => app.increase_temp_idx(),
+                            event::KeyCode::Char('k') => app.decrease_temp_idx(),
+                            event::KeyCode::Tab => app.change_activity_selected_header(),
                             _ => (),
                         };
                     }
@@ -145,6 +166,9 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                         match key.modifiers {
                             event::KeyModifiers::CONTROL => match key.code {
                                 event::KeyCode::Char('n') => app.initiate_new_param(),
+                                event::KeyCode::Char('d') | event::KeyCode::Delete => {
+                                    app.delete_selected_param()
+                                }
                                 _ => (),
                             },
                             _ => (),
@@ -159,6 +183,9 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                                     app.remove_new_param();
                                 }
                             }
+                            event::KeyCode::Char('j') => app.increase_temp_idx(),
+                            event::KeyCode::Char('k') => app.decrease_temp_idx(),
+                            event::KeyCode::Tab => app.change_activity_selected_param(),
                             _ => (),
                         };
                     }
@@ -171,6 +198,12 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
 }
 
 fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
+    if app.error_pop_up.0 {
+        if let Some(e) = &app.error_pop_up.1 {
+            error_popup(f, e, f.size());
+        }
+        return;
+    }
     let address = default_block("Address");
     let verb = default_block("Verb");
     let body = default_block("Response");
@@ -218,7 +251,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title("Request data tabs"),
+                .title("Response tabs"),
         )
         .select(app.resp_tabs.selected_idx)
         .style(Style::default().fg(Color::White))
@@ -321,13 +354,21 @@ fn handle_request_data<B: Backend>(
                     f.render_widget(v, h.value);
                 };
             };
-            let selected_style = Style::default().add_modifier(Modifier::REVERSED);
+            let selected_style = Style::default().add_modifier(Modifier::BOLD);
             let normal_style = Style::default().bg(Color::Blue);
             if let Some(headers) = app.headers() {
-                let headers = headers.clone();
                 let rows = headers.iter().map(|item| {
                     let height = 1;
-                    let cells = { vec![Cell::from(item.0.clone()), Cell::from(item.1.clone())] };
+                    let cells = {
+                        vec![
+                            Cell::from(item.0.clone()),
+                            Cell::from(item.1.clone()),
+                            Cell::from(format!(
+                                "{}",
+                                if item.2.clone() { "Active" } else { "Inactive" }
+                            )),
+                        ]
+                    };
                     Row::new(cells).height(height as u16).bottom_margin(0)
                 });
                 let t = Table::new(rows)
@@ -339,7 +380,9 @@ fn handle_request_data<B: Backend>(
                         Constraint::Length(30),
                         Constraint::Min(10),
                     ]);
-                f.render_stateful_widget(t, r.req_data, &mut TableState::default());
+                let state = &mut TableState::default();
+                state.select(Some(app.temp_header_param_idx));
+                f.render_stateful_widget(t, r.req_data, state);
             } else {
                 f.render_widget(b, r.req_data);
             }
@@ -365,13 +408,22 @@ fn handle_request_data<B: Backend>(
                     f.render_widget(v, h.value);
                 };
             };
-            let selected_style = Style::default().add_modifier(Modifier::REVERSED);
+            let selected_style = Style::default().add_modifier(Modifier::BOLD);
             let normal_style = Style::default().bg(Color::Blue);
             if let Some(headers) = app.params() {
                 let headers = headers.clone();
                 let rows = headers.iter().map(|item| {
                     let height = 1;
-                    let cells = { vec![Cell::from(item.0.clone()), Cell::from(item.1.clone())] };
+                    let cells = {
+                        vec![
+                            Cell::from(item.0.clone()),
+                            Cell::from(item.1.clone()),
+                            Cell::from(format!(
+                                "{}",
+                                if item.2.clone() { "Active" } else { "Inactive" }
+                            )),
+                        ]
+                    };
                     Row::new(cells).height(height as u16).bottom_margin(0)
                 });
                 let t = Table::new(rows)
@@ -383,7 +435,9 @@ fn handle_request_data<B: Backend>(
                         Constraint::Length(30),
                         Constraint::Min(10),
                     ]);
-                f.render_stateful_widget(t, r.req_data, &mut TableState::default());
+                let state = &mut TableState::default();
+                state.select(Some(app.temp_header_param_idx));
+                f.render_stateful_widget(t, r.req_data, state);
             } else {
                 f.render_widget(b, r.req_data);
             }
@@ -402,7 +456,7 @@ fn handle_response_data<B: Backend>(
     // Headers Table
     match app.resp_tabs.selected {
         app::ResponseTabs::Headers(_, _) => {
-            let selected_style = Style::default().add_modifier(Modifier::REVERSED);
+            let selected_style = Style::default().add_modifier(Modifier::BOLD);
             let normal_style = Style::default().bg(Color::Blue);
             if let Some(headers) = app.response_headers() {
                 let rows = headers.iter().map(|item| {
@@ -421,7 +475,6 @@ fn handle_response_data<B: Backend>(
                     ]);
                 f.render_stateful_widget(t, r.body, &mut TableState::default());
             } else {
-                println!("not in table");
                 f.render_widget(b, r.body);
             }
         }
@@ -431,4 +484,32 @@ fn handle_response_data<B: Backend>(
             f.render_widget(resp.block(b), r.body);
         }
     }
+    let sc_block = default_block("status_code");
+    let mut sc_p = Paragraph::new("");
+    let sc = app.response_status_code();
+    if sc != 0 {
+        sc_p = Paragraph::new(format!("{}", sc))
+            .alignment(tui::layout::Alignment::Center)
+            .wrap(tui::widgets::Wrap { trim: true });
+        if sc > 100 && sc < 400 {
+            sc_p = sc_p.style(Style::default().bg(Color::Green));
+        } else {
+            sc_p = sc_p.style(Style::default().bg(Color::Red));
+        }
+    }
+    f.render_widget(sc_p.block(sc_block), r.resp_status_code);
+}
+
+fn error_popup<B: Backend>(f: &mut Frame<B>, e: &app::Error, r: Rect) {
+    let block = Block::default()
+        .title("Error")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Red));
+    let area = layout::centered_rect(60, 20, r);
+    let msg = Paragraph::new(format!("{:?}", e))
+        .wrap(tui::widgets::Wrap { trim: true })
+        .block(block)
+        .style(Style::default().fg(Color::Red));
+    //f.render_widget(Clear, area); //this clears out the background
+    f.render_widget(msg, area);
 }
