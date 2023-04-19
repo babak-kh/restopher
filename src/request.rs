@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use reqwest::header::HeaderMap;
+
 use crate::response::Response;
 
 #[derive(Debug)]
@@ -106,6 +108,16 @@ impl Request {
             new_header: None,
             new_param: None,
         }
+    }
+    pub fn handle_headers(&self) -> HeaderMap {
+        let headers: HeaderMap = (&self.headers.clone().unwrap_or(HashMap::new()))
+            .try_into()
+            .expect("valid headers");
+        headers
+    }
+    pub fn handle_json_body(&self) -> Result<serde_json::Value, crate::app::Error> {
+        serde_json::from_str(&self.body.clone().unwrap_or("".to_string()))
+            .map_err(|e| crate::app::Error::JsonErr(e))
     }
 }
 

@@ -12,7 +12,7 @@ use tui::{
 
 use crate::{
     request::{self, HttpVerb, Request},
-    response::Response,
+    response::{Response, self},
 };
 #[derive(Debug)]
 pub enum Windows {
@@ -22,10 +22,18 @@ pub enum Windows {
     Verb,
 }
 #[derive(Debug)]
-enum ResponseTabs {
-    Body,
-    Headers,
+pub enum ResponseTabs<'a> {
+    Body(usize, &'a str),
+    Headers(usize, &'a str),
 }
+impl<'a> ResponseTabs<'a> {
+    pub fn split_at(&self) -> (&str, &str) {
+        match self {
+            ResponseTabs::Headers(_, name) | ResponseTabs::Body(_, name) => name.split_at(1),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum RequestTabs<'a> {
     Headers(usize, &'a str),
@@ -45,11 +53,29 @@ impl<'a> RequestTabs<'a> {
 #[derive(Debug)]
 pub enum Error {
     NoRequestErr(usize),
+    ReqwestErr(reqwest::Error),
+    JsonErr(serde_json::Error),
+    HeaderIsNotString,
+    ParamIsNotString,
+}
+impl Error {
+    fn from_reqwest(e: reqwest::Error) -> Self {
+        Error::ReqwestErr(e)
+    }
+    fn from_serde(e: serde_json::Error) -> Self {
+        Error::JsonErr(e)
+    }
 }
 #[derive(Debug)]
 pub struct ReqTabs<'a> {
     pub req_tabs: Vec<&'a RequestTabs<'a>>,
     pub selected: &'a RequestTabs<'a>,
+    pub selected_idx: usize,
+}
+#[derive(Debug)]
+pub struct RespTabs<'a> {
+    pub resp_tabs: Vec<&'a ResponseTabs<'a>>,
+    pub selected: &'a ResponseTabs<'a>,
     pub selected_idx: usize,
 }
 pub struct App<'a> {
@@ -58,6 +84,7 @@ pub struct App<'a> {
     current_request_idx: usize,
     requests: Option<Vec<Request>>,
     pub req_tabs: ReqTabs<'a>,
+    pub resp_tabs: RespTabs<'a>,
 }
 
 impl<'a> App<'a> {
@@ -67,6 +94,10 @@ impl<'a> App<'a> {
             &RequestTabs::Body(1, "Body"),
             &RequestTabs::Params(2, "Params"),
         ];
+        let resp_tabs = vec![
+            &ResponseTabs::Headers(0, "Headers"),
+            &ResponseTabs::Body(1, "Body"),
+        ];
         App {
             requests: Some(vec![Request::new()]),
             client: reqwest::Client::new(),
@@ -75,6 +106,11 @@ impl<'a> App<'a> {
             req_tabs: ReqTabs {
                 selected: req_tabs[0],
                 req_tabs,
+                selected_idx: 0,
+            },
+            resp_tabs: RespTabs {
+                selected: resp_tabs[0],
+                resp_tabs,
                 selected_idx: 0,
             },
         }
@@ -313,109 +349,72 @@ impl<'a> App<'a> {
     pub async fn call_request(&mut self) -> Result<String, Error> {
         if let Some(requests) = &mut self.requests {
             let req = &mut requests[self.current_request_idx];
-            let headers: HeaderMap = (&req.headers.clone().unwrap_or(HashMap::new()))
-                .try_into()
-                .expect("valid headers");
             match req.verb {
                 HttpVerb::GET => {
                     let r = self
                         .client
                         .get(&req.address.to_string())
-                        .query(&req.params.as_ref().unwrap())
-                        .headers(headers)
+                        .query(&req.params.as_ref().unwrap_or(&HashMap::new()))
+                        .headers(req.handle_headers())
                         .send()
                         .await
-                        .unwrap();
-                    let mut response_headers = HashMap::new();
-                    for (key, value) in r.headers().iter() {
-                        response_headers.insert(
-                            key.as_str().to_string(),
-                            value.to_str().unwrap().to_string(),
-                        );
-                    }
+                        .map_err(|e| Error::ReqwestErr(e))?;
                     req.response = Some(Response {
-                        headers: Some(response_headers),
+                        headers: Some(response::handle_response_headers(r.headers())?),
                         status_code: r.status().as_u16() as i32,
-                        body: Some(r.text().await.unwrap()),
+                        body: Some(r.text().await.map_err(|e| Error::ReqwestErr(e))?),
                     });
+                    return Ok("done".to_string());
                 }
                 HttpVerb::POST => {
-                    let json_body: &serde_json::Value =
-                        &serde_json::from_str(&req.body.clone().unwrap()).unwrap();
-                    let headers: HeaderMap = (&req.headers.clone().unwrap())
-                        .try_into()
-                        .expect("invalid headers");
                     let r = self
                         .client
                         .post(&req.address.to_string())
-                        .query(&req.params.as_ref().unwrap())
-                        .headers(headers)
-                        .json(json_body)
+                        .query(&req.params.as_ref().unwrap_or(&HashMap::new()))
+                        .headers(req.handle_headers())
+                        .json(&req.handle_json_body().map(|_| "".to_string())?)
                         .send()
                         .await
-                        .unwrap();
-                    let mut response_headers = HashMap::new();
-                    for (key, value) in r.headers().iter() {
-                        response_headers.insert(
-                            key.as_str().to_string(),
-                            value.to_str().unwrap().to_string(),
-                        );
-                    }
+                        .map_err(|e| Error::ReqwestErr(e))?;
                     req.response = Some(Response {
-                        headers: Some(response_headers),
+                        headers: Some(response::handle_response_headers(r.headers())?),
                         status_code: r.status().as_u16() as i32,
-                        body: Some(r.text().await.unwrap()),
+                        body: Some(r.text().await.map_err(|e| Error::from_reqwest(e))?),
                     });
+                    return Ok("done".to_string());
                 }
                 HttpVerb::PUT => {
-                    let json_body: &serde_json::Value =
-                        &serde_json::from_str(&req.body.clone().unwrap()).unwrap();
-                    let headers: HeaderMap = (&req.headers.clone().unwrap())
-                        .try_into()
-                        .expect("invalid headers");
                     let r = self
                         .client
                         .put(&req.address.to_string())
-                        .query(&req.params.as_ref().unwrap())
-                        .headers(headers)
-                        .json(json_body)
+                        .query(&req.params.as_ref().unwrap_or(&HashMap::new()))
+                        .headers(req.handle_headers())
+                        .json(&req.handle_json_body().map(|_| "".to_string())?)
                         .send()
                         .await
-                        .unwrap();
-                    let mut response_headers = HashMap::new();
-                    for (key, value) in r.headers().iter() {
-                        response_headers.insert(
-                            key.as_str().to_string(),
-                            value.to_str().unwrap().to_string(),
-                        );
-                    }
+                        .map_err(|e| Error::ReqwestErr(e))?;
                     req.response = Some(Response {
-                        headers: Some(response_headers),
+                        headers: Some(response::handle_response_headers(r.headers())?),
                         status_code: r.status().as_u16() as i32,
                         body: Some(r.text().await.unwrap()),
                     });
+                    return Ok("done".to_string());
                 }
                 HttpVerb::DELETE => {
                     let r = self
                         .client
                         .get(&req.address.to_string())
-                        .query(&req.params.as_ref().unwrap())
-                        .headers(headers)
+                        .query(&req.params.as_ref().unwrap_or(&HashMap::new()))
+                        .headers(req.handle_headers())
                         .send()
                         .await
-                        .unwrap();
-                    let mut response_headers = HashMap::new();
-                    for (key, value) in r.headers().iter() {
-                        response_headers.insert(
-                            key.as_str().to_string(),
-                            value.to_str().unwrap().to_string(),
-                        );
-                    }
+                        .map_err(|e| Error::ReqwestErr(e))?;
                     req.response = Some(Response {
-                        headers: Some(response_headers),
+                        headers: Some(response::handle_response_headers(r.headers())?),
                         status_code: r.status().as_u16() as i32,
                         body: Some(r.text().await.unwrap()),
                     });
+                    return Ok("done".to_string());
                 }
             }
         }
@@ -435,6 +434,19 @@ impl<'a> App<'a> {
         }
         self.req_tabs.selected_idx = idx;
         self.req_tabs.selected = self.req_tabs.req_tabs[idx]
+    }
+    pub fn change_response_tab(&mut self) {
+        let mut idx: usize;
+        match self.resp_tabs.selected {
+            ResponseTabs::Headers(index, _) | ResponseTabs::Body(index, _) => idx = *index,
+        }
+        idx += 1;
+        if idx == self.resp_tabs.resp_tabs.len() {
+            idx = 0;
+            self.resp_tabs.selected = self.resp_tabs.resp_tabs[0]
+        }
+        self.resp_tabs.selected_idx = idx;
+        self.resp_tabs.selected = self.resp_tabs.resp_tabs[idx]
     }
 
     pub fn add_to_kv(&mut self, ch: char) {
@@ -517,5 +529,18 @@ impl<'a> App<'a> {
             _ => (),
         }
         false
+    }
+    pub fn response_headers(&self) -> Option<HashMap<String, String>> {
+        if let Some(req) = self.current_request() {
+            if let Some(resp) = &req.response {
+                return resp.headers();
+            }
+            let mut a = HashMap::new();
+            a.insert("bbbbblsda".to_string(), "adasnd".to_string());
+            return Some(a);
+        }
+        let mut a = HashMap::new();
+        a.insert("ccccccc".to_string(), "ddddddd".to_string());
+        Some(a)
     }
 }

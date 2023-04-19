@@ -71,6 +71,10 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                         app.change_request_tab();
                         continue;
                     }
+                    event::KeyCode::Char('b') => {
+                        app.change_response_tab();
+                        continue;
+                    }
                     event::KeyCode::Char('a') => {
                         app.call_request().await.unwrap();
                         continue;
@@ -198,48 +202,74 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
                 .bg(Color::Black),
         );
 
+    let body_titles: Vec<Spans> = app
+        .resp_tabs
+        .resp_tabs
+        .iter()
+        .map(|t| {
+            let (first, rest) = t.split_at();
+            Spans::from(vec![
+                Span::styled(first, Style::default().fg(Color::Yellow)),
+                Span::styled(rest, Style::default().fg(Color::White)),
+            ])
+        })
+        .collect();
+    let body_tabs = Tabs::new(body_titles)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Request data tabs"),
+        )
+        .select(app.resp_tabs.selected_idx)
+        .style(Style::default().fg(Color::White))
+        .highlight_style(
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .bg(Color::Black),
+        );
     let l = layout::LayoutBuilder::default(f, app.has_new_header(), app.has_new_param());
     let data = Paragraph::new(app.address().clone().unwrap_or("".to_string()))
         .wrap(tui::widgets::Wrap { trim: true });
-    let resp = Paragraph::new(app.response_body().clone()).wrap(tui::widgets::Wrap { trim: true });
     let verb_str = Paragraph::new(app.verb()).wrap(tui::widgets::Wrap { trim: true });
 
     f.render_widget(tabs, l.req_tabs);
+    f.render_widget(body_tabs, l.body_tabs);
 
     match app.selected_window {
         Windows::Address => {
             let address = address.border_type(tui::widgets::BorderType::Thick);
             let data = data.block(address);
-            let resp = resp.block(body);
             let verb = verb_str.block(verb);
+            handle_response_data(app, f, body, &l);
             handle_request_data(app, f, request_data, &l);
             f.render_widget(verb, l.verb);
             f.render_widget(data, l.address);
-            f.render_widget(resp, l.body);
         }
         Windows::Response => {
             let body = body.border_type(tui::widgets::BorderType::Thick);
             let data = data.block(address);
-            let resp = resp.block(body);
             let verb = verb_str.block(verb);
             handle_request_data(app, f, request_data, &l);
             f.render_widget(verb, l.verb);
             f.render_widget(data, l.address);
-            f.render_widget(resp, l.body);
+            handle_response_data(
+                app,
+                f,
+                body.border_type(tui::widgets::BorderType::Thick),
+                &l,
+            );
         }
         Windows::Verb => {
             let verb = verb.border_type(tui::widgets::BorderType::Thick);
             let data = data.block(address);
-            let resp = resp.block(body);
             let verb = verb_str.block(verb);
             handle_request_data(app, f, request_data, &l);
             f.render_widget(verb, l.verb);
             f.render_widget(data, l.address);
-            f.render_widget(resp, l.body);
+            handle_response_data(app, f, body, &l);
         }
         Windows::RequestData => {
             let data = data.block(address);
-            let resp = resp.block(body);
             let verb = verb_str.block(verb);
 
             handle_request_data(
@@ -248,9 +278,9 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
                 request_data.border_type(tui::widgets::BorderType::Thick),
                 &l,
             );
+            handle_response_data(app, f, body, &l);
             f.render_widget(verb, l.verb);
             f.render_widget(data, l.address);
-            f.render_widget(resp, l.body);
         }
     }
 }
@@ -296,9 +326,9 @@ fn handle_request_data<B: Backend>(
             if let Some(headers) = app.headers() {
                 let headers = headers.clone();
                 let rows = headers.iter().map(|item| {
-                    let height = headers.len() + 1;
+                    let height = 1;
                     let cells = { vec![Cell::from(item.0.clone()), Cell::from(item.1.clone())] };
-                    Row::new(cells).height(height as u16).bottom_margin(1)
+                    Row::new(cells).height(height as u16).bottom_margin(0)
                 });
                 let t = Table::new(rows)
                     .block(b)
@@ -340,9 +370,9 @@ fn handle_request_data<B: Backend>(
             if let Some(headers) = app.params() {
                 let headers = headers.clone();
                 let rows = headers.iter().map(|item| {
-                    let height = headers.len() + 1;
+                    let height = 1;
                     let cells = { vec![Cell::from(item.0.clone()), Cell::from(item.1.clone())] };
-                    Row::new(cells).height(height as u16).bottom_margin(1)
+                    Row::new(cells).height(height as u16).bottom_margin(0)
                 });
                 let t = Table::new(rows)
                     .block(b)
@@ -360,5 +390,45 @@ fn handle_request_data<B: Backend>(
         }
 
         app::RequestTabs::Body(_, _) => f.render_widget(b, r.req_data),
+    }
+}
+
+fn handle_response_data<B: Backend>(
+    app: &App,
+    f: &mut Frame<B>,
+    b: Block,
+    r: &layout::LayoutBuilder,
+) {
+    // Headers Table
+    match app.resp_tabs.selected {
+        app::ResponseTabs::Headers(_, _) => {
+            let selected_style = Style::default().add_modifier(Modifier::REVERSED);
+            let normal_style = Style::default().bg(Color::Blue);
+            if let Some(headers) = app.response_headers() {
+                let rows = headers.iter().map(|item| {
+                    let height = 1;
+                    let cells = { vec![Cell::from(item.0.clone()), Cell::from(item.1.clone())] };
+                    Row::new(cells).height(height as u16).bottom_margin(0)
+                });
+                let t = Table::new(rows)
+                    .block(b)
+                    .highlight_style(selected_style)
+                    .highlight_symbol(">> ")
+                    .widths(&[
+                        Constraint::Percentage(50),
+                        Constraint::Length(30),
+                        Constraint::Min(1),
+                    ]);
+                f.render_stateful_widget(t, r.body, &mut TableState::default());
+            } else {
+                println!("not in table");
+                f.render_widget(b, r.body);
+            }
+        }
+        app::ResponseTabs::Body(_, _) => {
+            let resp =
+                Paragraph::new(app.response_body().clone()).wrap(tui::widgets::Wrap { trim: true });
+            f.render_widget(resp.block(b), r.body);
+        }
     }
 }
