@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use tui::backend::Backend;
 use tui::layout::{Constraint, Direction, Layout, Rect};
 use tui::Frame;
@@ -11,6 +13,17 @@ pub struct LayoutBuilder {
     pub req_tabs: Rect,
     pub req_data: Rect,
     pub new_header: Option<KV>,
+    pub el: EnvironmentLayout,
+}
+struct EnvironmentLayout {
+    names: Rect,
+    options: Rect,
+    kvs: Rect,
+}
+impl EnvironmentLayout {
+    pub fn new() -> Self {
+        EnvironmentLayout { names: (), options: (), kvs: () }
+    }
 }
 pub struct KV {
     pub key: Rect,
@@ -26,10 +39,10 @@ impl LayoutBuilder {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![
-                Constraint::Percentage(6), // verb + address
-                Constraint::Percentage(6), // req tabs
+                Constraint::Percentage(6),  // verb + address
+                Constraint::Percentage(6),  // req tabs
                 Constraint::Percentage(44), // req headers/body/params
-                Constraint::Percentage(6), // resp headers/body tabs
+                Constraint::Percentage(6),  // resp headers/body tabs
                 Constraint::Percentage(38), // response
             ])
             .split(base.size());
@@ -100,3 +113,5 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         )
         .split(popup_layout[1])[1]
 }
+
+pub fn environment_layout() {}

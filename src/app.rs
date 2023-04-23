@@ -1,3 +1,4 @@
+use crate::environments::Environment;
 use serde_json::{self, Serializer};
 use std::collections::HashMap;
 
@@ -78,6 +79,9 @@ pub struct App<'a> {
     pub req_tabs: ReqTabs<'a>,
     pub resp_tabs: RespTabs<'a>,
     pub error_pop_up: (bool, Option<Error>),
+    pub show_environments: bool,
+    all_envs: Vec<Environment>,
+    current_env: Option<Environment>,
 }
 
 impl<'a> App<'a> {
@@ -108,6 +112,9 @@ impl<'a> App<'a> {
             },
             error_pop_up: (false, None),
             temp_header_param_idx: 0,
+            current_env: None,
+            show_environments: false,
+            all_envs: Vec::new(),
         }
     }
     pub fn has_new_header(&self) -> bool {

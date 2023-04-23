@@ -2,6 +2,7 @@ mod app;
 mod layout;
 mod request;
 mod response;
+mod environments;
 use std::io;
 use tokio;
 
@@ -74,6 +75,10 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                     }
                     event::KeyCode::Char('b') => {
                         app.change_response_tab();
+                        continue;
+                    }
+                    event::KeyCode::Char('e') => {
+                        app.show_environments = true;
                         continue;
                     }
                     event::KeyCode::Char('a') => {
@@ -198,12 +203,6 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
 }
 
 fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
-    if app.error_pop_up.0 {
-        if let Some(e) = &app.error_pop_up.1 {
-            error_popup(f, e, f.size());
-        }
-        return;
-    }
     let address = default_block("Address");
     let verb = default_block("Verb");
     let body = default_block("Response");
@@ -315,6 +314,15 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             f.render_widget(verb, l.verb);
             f.render_widget(data, l.address);
         }
+    }
+    if app.error_pop_up.0 {
+        if let Some(e) = &app.error_pop_up.1 {
+            error_popup(f, e, f.size());
+        }
+        return;
+    }
+    if app.show_environments {
+        show_environments(f, &mut app)
     }
 }
 
@@ -492,9 +500,9 @@ fn handle_response_data<B: Backend>(
             .alignment(tui::layout::Alignment::Center)
             .wrap(tui::widgets::Wrap { trim: true });
         if sc > 100 && sc < 400 {
-            sc_p = sc_p.style(Style::default().bg(Color::Green));
+            sc_p = sc_p.style(Style::default().fg(Color::Green));
         } else {
-            sc_p = sc_p.style(Style::default().bg(Color::Red));
+            sc_p = sc_p.style(Style::default().fg(Color::Red));
         }
     }
     f.render_widget(sc_p.block(sc_block), r.resp_status_code);
@@ -512,4 +520,8 @@ fn error_popup<B: Backend>(f: &mut Frame<B>, e: &app::Error, r: Rect) {
         .style(Style::default().fg(Color::Red));
     //f.render_widget(Clear, area); //this clears out the background
     f.render_widget(msg, area);
+}
+
+fn show_environments<B: Backend>(f: &mut Frame<B>, app: &mut App) {
+
 }
