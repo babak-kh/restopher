@@ -1,8 +1,9 @@
 mod app;
+mod components;
+mod environments;
 mod layout;
 mod request;
 mod response;
-mod environments;
 use std::io;
 use tokio;
 
@@ -17,7 +18,7 @@ use tui::{
     layout::{Constraint, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Spans},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Tabs},
+    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Tabs},
     Frame, Terminal,
 };
 
@@ -52,49 +53,172 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
             match key.modifiers {
                 event::KeyModifiers::CONTROL => match key.code {
                     event::KeyCode::Char('q') => break,
-                    event::KeyCode::Char('j') => {
-                        app.down();
-                        continue;
-                    }
-                    event::KeyCode::Char('k') => {
-                        app.up();
-                        continue;
-                    }
-                    event::KeyCode::Char('h') => {
-                        app.left();
-                        continue;
-                    }
-                    event::KeyCode::Char('l') => {
-                        app.right();
-                        continue;
-                    }
-                    event::KeyCode::Char('t') => {
-                        app.change_request_tab();
-                        app.temp_header_param_idx = 0;
-                        continue;
-                    }
-                    event::KeyCode::Char('b') => {
-                        app.change_response_tab();
-                        continue;
-                    }
-                    event::KeyCode::Char('e') => {
-                        app.show_environments = true;
-                        continue;
-                    }
-                    event::KeyCode::Char('a') => {
-                        app.call_request()
-                            .await
-                            .or_else(|e| {
-                                app.error_pop_up = (true, Some(e));
-                                Ok::<String, app::Error>("done".to_string())
-                            })
-                            .unwrap();
-                        continue;
-                    }
                     _ => (),
                 },
                 _ => (),
-            }
+            };
+            match app.selected_main_window {
+                app::MainWindows::RequestScr => {
+                    match key.modifiers {
+                        event::KeyModifiers::CONTROL => match key.code {
+                            event::KeyCode::Char('j') => {
+                                app.down();
+                                continue;
+                            }
+                            event::KeyCode::Char('k') => {
+                                app.up();
+                                continue;
+                            }
+                            event::KeyCode::Char('h') => {
+                                app.left();
+                                continue;
+                            }
+                            event::KeyCode::Char('l') => {
+                                app.right();
+                                continue;
+                            }
+                            event::KeyCode::Char('t') => {
+                                app.change_request_tab();
+                                app.temp_header_param_idx = 0;
+                                continue;
+                            }
+                            event::KeyCode::Char('b') => {
+                                app.change_response_tab();
+                                continue;
+                            }
+                            event::KeyCode::Char('e') => {
+                                app.selected_main_window = app::MainWindows::EnvironmentScr;
+                                app.initiate_temp_envs();
+                                continue;
+                            }
+                            event::KeyCode::Char('a') => {
+                                app.call_request()
+                                    .await
+                                    .or_else(|e| {
+                                        app.error_pop_up = (true, Some(e));
+                                        Ok::<String, app::Error>("done".to_string())
+                                    })
+                                    .unwrap();
+                                continue;
+                            }
+                            _ => (),
+                        },
+                        _ => (),
+                    };
+                    match app.selected_window {
+                        Windows::Address => match key.code {
+                            event::KeyCode::Char(x) => app.add_address(x),
+                            event::KeyCode::Backspace => {
+                                app.pop_address();
+                            }
+                            _ => (),
+                        },
+
+                        Windows::Response => (),
+                        Windows::Verb => match key.code {
+                            event::KeyCode::Up => app.verb_up(),
+                            event::KeyCode::Down => app.verb_down(),
+                            _ => (),
+                        },
+
+                        Windows::RequestData => match app.req_tabs.selected {
+                            app::RequestTabs::Headers(_, _) => {
+                                if app.has_new_header() {
+                                    match key.code {
+                                        event::KeyCode::Char(x) => app.add_to_kv(x),
+                                        event::KeyCode::Backspace => {
+                                            app.remove_from_kv();
+                                        }
+                                        event::KeyCode::Tab => app.change_active(),
+                                        _ => (),
+                                    };
+                                };
+                                match key.modifiers {
+                                    event::KeyModifiers::CONTROL => match key.code {
+                                        event::KeyCode::Char('n') => app.initiate_new_header(),
+                                        event::KeyCode::Char('d') | event::KeyCode::Delete => {
+                                            app.delete_selected_header()
+                                        }
+                                        _ => (),
+                                    },
+                                    _ => (),
+                                };
+                                match key.code {
+                                    event::KeyCode::Esc => app.remove_new_header(),
+                                    event::KeyCode::Enter => {
+                                        if app.is_key_active() {
+                                            app.add_header_key();
+                                        } else {
+                                            app.add_header_value();
+                                            app.remove_new_header();
+                                        }
+                                    }
+                                    event::KeyCode::Char('j') => app.increase_temp_idx(),
+                                    event::KeyCode::Char('k') => app.decrease_temp_idx(),
+                                    event::KeyCode::Tab => app.change_activity_selected_header(),
+                                    _ => (),
+                                };
+                            }
+                            app::RequestTabs::Params(_, _) => {
+                                if app.has_new_param() {
+                                    match key.code {
+                                        event::KeyCode::Char(x) => app.add_to_kv(x),
+                                        event::KeyCode::Backspace => {
+                                            app.remove_from_kv();
+                                        }
+                                        event::KeyCode::Tab => app.change_active(),
+                                        _ => (),
+                                    };
+                                };
+                                match key.modifiers {
+                                    event::KeyModifiers::CONTROL => match key.code {
+                                        event::KeyCode::Char('n') => app.initiate_new_param(),
+                                        event::KeyCode::Char('d') | event::KeyCode::Delete => {
+                                            app.delete_selected_param()
+                                        }
+                                        _ => (),
+                                    },
+                                    _ => (),
+                                };
+                                match key.code {
+                                    event::KeyCode::Esc => app.remove_new_param(),
+                                    event::KeyCode::Enter => {
+                                        if app.is_key_active() {
+                                            app.add_param_key();
+                                        } else {
+                                            app.add_param_value();
+                                            app.remove_new_param();
+                                        }
+                                    }
+                                    event::KeyCode::Char('j') => app.increase_temp_idx(),
+                                    event::KeyCode::Char('k') => app.decrease_temp_idx(),
+                                    event::KeyCode::Tab => app.change_activity_selected_param(),
+                                    _ => (),
+                                };
+                            }
+                            app::RequestTabs::Body(_, _) => (),
+                        },
+                    };
+                }
+                app::MainWindows::EnvironmentScr => {
+                    match key.code {
+                        event::KeyCode::Esc => {
+                            app.selected_main_window = app::MainWindows::RequestScr;
+                            app.clear_temp_envs();
+                        }
+                        _ => (),
+                    };
+                    match key.modifiers {
+                        event::KeyModifiers::CONTROL => {
+                            match key.code {
+                                event::KeyCode::Char('n') => {
+                                }
+                            _ => (),
+                        }},
+                        _ => (),
+                    };
+                }
+            };
             match key.code {
                 event::KeyCode::Esc => {
                     if app.error_pop_up.0 {
@@ -103,111 +227,12 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                 }
                 _ => (),
             }
-            match app.selected_window {
-                Windows::Address => match key.code {
-                    event::KeyCode::Char(x) => app.add_address(x),
-                    event::KeyCode::Backspace => {
-                        app.pop_address();
-                    }
-                    _ => (),
-                },
-
-                Windows::Response => (),
-                Windows::Verb => match key.code {
-                    event::KeyCode::Up => app.verb_up(),
-                    event::KeyCode::Down => app.verb_down(),
-                    _ => (),
-                },
-
-                Windows::RequestData => match app.req_tabs.selected {
-                    app::RequestTabs::Headers(_, _) => {
-                        if app.has_new_header() {
-                            match key.code {
-                                event::KeyCode::Char(x) => app.add_to_kv(x),
-                                event::KeyCode::Backspace => {
-                                    app.remove_from_kv();
-                                }
-                                event::KeyCode::Tab => app.change_active(),
-                                _ => (),
-                            };
-                        };
-                        match key.modifiers {
-                            event::KeyModifiers::CONTROL => match key.code {
-                                event::KeyCode::Char('n') => app.initiate_new_header(),
-                                event::KeyCode::Char('d') | event::KeyCode::Delete => {
-                                    app.delete_selected_header()
-                                }
-                                _ => (),
-                            },
-                            _ => (),
-                        };
-                        match key.code {
-                            event::KeyCode::Esc => app.remove_new_header(),
-                            event::KeyCode::Enter => {
-                                if app.is_key_active() {
-                                    app.add_header_key();
-                                } else {
-                                    app.add_header_value();
-                                    app.remove_new_header();
-                                }
-                            }
-                            event::KeyCode::Char('j') => app.increase_temp_idx(),
-                            event::KeyCode::Char('k') => app.decrease_temp_idx(),
-                            event::KeyCode::Tab => app.change_activity_selected_header(),
-                            _ => (),
-                        };
-                    }
-                    app::RequestTabs::Params(_, _) => {
-                        if app.has_new_param() {
-                            match key.code {
-                                event::KeyCode::Char(x) => app.add_to_kv(x),
-                                event::KeyCode::Backspace => {
-                                    app.remove_from_kv();
-                                }
-                                event::KeyCode::Tab => app.change_active(),
-                                _ => (),
-                            };
-                        };
-                        match key.modifiers {
-                            event::KeyModifiers::CONTROL => match key.code {
-                                event::KeyCode::Char('n') => app.initiate_new_param(),
-                                event::KeyCode::Char('d') | event::KeyCode::Delete => {
-                                    app.delete_selected_param()
-                                }
-                                _ => (),
-                            },
-                            _ => (),
-                        };
-                        match key.code {
-                            event::KeyCode::Esc => app.remove_new_param(),
-                            event::KeyCode::Enter => {
-                                if app.is_key_active() {
-                                    app.add_param_key();
-                                } else {
-                                    app.add_param_value();
-                                    app.remove_new_param();
-                                }
-                            }
-                            event::KeyCode::Char('j') => app.increase_temp_idx(),
-                            event::KeyCode::Char('k') => app.decrease_temp_idx(),
-                            event::KeyCode::Tab => app.change_activity_selected_param(),
-                            _ => (),
-                        };
-                    }
-                    app::RequestTabs::Body(_, _) => (),
-                },
-            };
         };
     }
     Ok(())
 }
 
 fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
-    let address = default_block("Address");
-    let verb = default_block("Verb");
-    let body = default_block("Response");
-    let request_data = default_block("Request Data");
-
     let titles: Vec<Spans> = app
         .req_tabs
         .req_tabs
@@ -220,20 +245,6 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             ])
         })
         .collect();
-    let tabs = Tabs::new(titles)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("Request data tabs"),
-        )
-        .select(app.req_tabs.selected_idx)
-        .style(Style::default().fg(Color::White))
-        .highlight_style(
-            Style::default()
-                .add_modifier(Modifier::BOLD)
-                .bg(Color::Black),
-        );
-
     let body_titles: Vec<Spans> = app
         .resp_tabs
         .resp_tabs
@@ -246,19 +257,15 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             ])
         })
         .collect();
-    let body_tabs = Tabs::new(body_titles)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title("Response tabs"),
-        )
-        .select(app.resp_tabs.selected_idx)
-        .style(Style::default().fg(Color::White))
-        .highlight_style(
-            Style::default()
-                .add_modifier(Modifier::BOLD)
-                .bg(Color::Black),
-        );
+
+    // component declarations
+    let tabs = components::tabs(titles, "Request data tabs", app.req_tabs.selected_idx);
+    let address = components::default_block("Address");
+    let verb = components::default_block("Verb");
+    let body = components::default_block("Response");
+    let request_data = components::default_block("Request Data");
+    let body_tabs = components::tabs(body_titles, "Response tabs", app.resp_tabs.selected_idx);
+
     let l = layout::LayoutBuilder::default(f, app.has_new_header(), app.has_new_param());
     let data = Paragraph::new(app.address().clone().unwrap_or("".to_string()))
         .wrap(tui::widgets::Wrap { trim: true });
@@ -269,7 +276,9 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
 
     match app.selected_window {
         Windows::Address => {
-            let address = address.border_type(tui::widgets::BorderType::Thick);
+            let address = address
+                .border_type(tui::widgets::BorderType::Thick)
+                .style(Style::default().fg(Color::Rgb(240, 134, 110)));
             let data = data.block(address);
             let verb = verb_str.block(verb);
             handle_response_data(app, f, body, &l);
@@ -321,16 +330,10 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
         }
         return;
     }
-    if app.show_environments {
-        show_environments(f, &mut app)
+    match app.selected_main_window {
+        app::MainWindows::EnvironmentScr => show_environments(f, &app, &l),
+        _ => (),
     }
-}
-
-fn default_block(name: &str) -> Block {
-    Block::default()
-        .title(name)
-        .style(Style::default().bg(Color::Black))
-        .borders(Borders::ALL)
 }
 
 fn handle_request_data<B: Backend>(
@@ -344,8 +347,8 @@ fn handle_request_data<B: Backend>(
         app::RequestTabs::Headers(_, _) => {
             if app.has_new_header() {
                 if let Some(h) = &r.new_header {
-                    let mut key_block = default_block("Key");
-                    let mut value_block = default_block("Value");
+                    let mut key_block = components::default_block("Key");
+                    let mut value_block = components::default_block("Value");
                     if app.is_key_active() {
                         key_block = key_block.border_type(tui::widgets::BorderType::Thick);
                     } else {
@@ -398,8 +401,8 @@ fn handle_request_data<B: Backend>(
         app::RequestTabs::Params(_, _) => {
             if app.has_new_param() {
                 if let Some(h) = &r.new_header {
-                    let mut key_block = default_block("Key");
-                    let mut value_block = default_block("Value");
+                    let mut key_block = components::default_block("Key");
+                    let mut value_block = components::default_block("Value");
                     if app.is_key_active() {
                         key_block = key_block.border_type(tui::widgets::BorderType::Thick);
                     } else {
@@ -492,7 +495,7 @@ fn handle_response_data<B: Backend>(
             f.render_widget(resp.block(b), r.body);
         }
     }
-    let sc_block = default_block("status_code");
+    let sc_block = components::default_block("status_code");
     let mut sc_p = Paragraph::new("");
     let sc = app.response_status_code();
     if sc != 0 {
@@ -522,6 +525,12 @@ fn error_popup<B: Backend>(f: &mut Frame<B>, e: &app::Error, r: Rect) {
     f.render_widget(msg, area);
 }
 
-fn show_environments<B: Backend>(f: &mut Frame<B>, app: &mut App) {
-
+fn show_environments<B: Backend>(f: &mut Frame<B>, app: &App, l: &layout::LayoutBuilder) {
+    let environment_names =
+        components::default_block("Environments").style(Style::default().bg(Color::Black));
+    let environment_kvs =
+        components::default_block("Variables").style(Style::default().bg(Color::Black));
+    f.render_widget(Clear, l.el.all);
+    f.render_widget(environment_names, l.el.names);
+    f.render_widget(environment_kvs, l.el.kvs);
 }

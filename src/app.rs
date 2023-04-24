@@ -1,4 +1,4 @@
-use crate::environments::Environment;
+use crate::environments::{self, Environment};
 use serde_json::{self, Serializer};
 use std::collections::HashMap;
 
@@ -6,6 +6,13 @@ use crate::{
     request::{self, HttpVerb, Request},
     response::{self, Response},
 };
+
+#[derive(Debug)]
+pub enum MainWindows {
+    RequestScr,
+    EnvironmentScr,
+}
+
 #[derive(Debug)]
 pub enum Windows {
     Address,
@@ -70,7 +77,9 @@ pub struct RespTabs<'a> {
     pub selected: &'a ResponseTabs<'a>,
     pub selected_idx: usize,
 }
+
 pub struct App<'a> {
+    pub selected_main_window: MainWindows,
     pub selected_window: Windows,
     client: reqwest::Client,
     current_request_idx: usize,
@@ -80,8 +89,9 @@ pub struct App<'a> {
     pub resp_tabs: RespTabs<'a>,
     pub error_pop_up: (bool, Option<Error>),
     pub show_environments: bool,
-    all_envs: Vec<Environment>,
-    current_env: Option<Environment>,
+    all_envs: Vec<Environment<'a>>,
+    pub temp_envs: Option<environments::TempEnv<'a>>,
+    current_env: Option<usize> // index of active environments
 }
 
 impl<'a> App<'a> {
@@ -115,6 +125,8 @@ impl<'a> App<'a> {
             current_env: None,
             show_environments: false,
             all_envs: Vec::new(),
+            selected_main_window: MainWindows::RequestScr,
+            temp_envs: None,
         }
     }
     pub fn has_new_header(&self) -> bool {
@@ -601,6 +613,43 @@ impl<'a> App<'a> {
                 if idx <= headers.len() - 1 {
                     headers[idx].2 = !headers[idx].2;
                 }
+            }
+        }
+    }
+    pub fn initiate_temp_envs(&mut self) {
+        self.temp_envs = Some(environments::TempEnv::new(self.all_envs.clone()));
+    }
+    pub fn clear_temp_envs(&mut self) {
+        if let Some(te) = &self.temp_envs {
+            if te.changed {
+                self.all_envs = te.temp_envs.clone();
+            }
+        }
+        if let Some(current_env) = &mut self.current_env {
+            let mut found: bool = false;
+            for item in self.all_envs.iter_mut() {
+                if current_env.name == item.name {
+                    found = true;
+                    self.current_env = Some(item);
+                }
+                if !found {
+                    self.current_env = None;
+                }
+            }
+        }
+        self.temp_envs = None
+    }
+    pub fn new_environment(&mut self, name: &'a str) {
+        if let Some(te) = &mut self.temp_envs {
+            te.temp_envs.push(environments::Environment::new(name));
+            te.changed = true;
+        }
+    }
+    pub fn new_environment_kv(&mut self, name: &str, key: String, value: String) {
+        if let Some(te) = &mut self.temp_envs {
+            if te.temp_envs.len() > 0 && te.selected < te.temp_envs.len() {
+                te.temp_envs[te.selected].envs.insert(key, value);
+                te.changed = true;
             }
         }
     }
