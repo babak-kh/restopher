@@ -4,6 +4,7 @@ mod environments;
 mod layout;
 mod request;
 mod response;
+use components::{default_block, to_selected};
 use std::io;
 use tokio;
 
@@ -18,7 +19,10 @@ use tui::{
     layout::{Constraint, Rect},
     style::{Color, Modifier, Style},
     text::{Span, Spans},
-    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Tabs},
+    widgets::{
+        Block, Borders, Cell, Clear, List, ListItem, ListState, Paragraph, Row, Table, TableState,
+        Tabs,
+    },
     Frame, Terminal,
 };
 
@@ -203,20 +207,116 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                 app::MainWindows::EnvironmentScr => {
                     match key.code {
                         event::KeyCode::Esc => {
+                            if let Some(temp) = &mut app.temp_envs {
+                                if temp.with_kv_insertion || temp.with_name_insertion {
+                                    temp.with_name_insertion = false;
+                                    temp.with_kv_insertion = false;
+                                    continue;
+                                }
+                            }
                             app.selected_main_window = app::MainWindows::RequestScr;
-                            app.clear_temp_envs();
+                            app.clear_temp_envs()
+                                .or_else(|e| {
+                                    println!("{:?}", e);
+                                    app.error_pop_up = (true, Some(e));
+                                    Ok::<(), app::Error>(())
+                                })
+                                .unwrap();
+                            continue;
+                        }
+
+                        event::KeyCode::Tab => {
+                            match app.temp_envs {
+                                Some(ref mut t) => {
+                                    if t.with_kv_insertion {
+                                        app.change_active_env_kv();
+                                        continue;
+                                    }
+                                }
+                                None => continue,
+                            }
+                            app.change_active_env_panel();
                         }
                         _ => (),
                     };
                     match key.modifiers {
-                        event::KeyModifiers::CONTROL => {
-                            match key.code {
-                                event::KeyCode::Char('n') => {
+                        event::KeyModifiers::CONTROL => match key.code {
+                            event::KeyCode::Char('n') => {
+                                if let Some(temp) = &mut app.temp_envs {
+                                    match temp.sections {
+                                        environments::EnvironmentSubSection::Name => {
+                                            temp.with_name_insertion = true;
+                                            continue;
+                                        }
+                                        environments::EnvironmentSubSection::KVs => {
+                                            temp.with_kv_insertion = true;
+                                            continue;
+                                        }
+                                    };
+                                };
+                            }
+                            event::KeyCode::Char('d') => {
+                                if let Some(temp) = &mut app.temp_envs {
+                                    match temp.sections {
+                                        environments::EnvironmentSubSection::Name => {
+                                            temp.temp_envs.remove(temp.selected);
+                                        },
+                                        environments::EnvironmentSubSection::KVs => {
+                                            temp.temp_envs[temp.selected].envs_to_show.remove(temp.selected_kv);
+                                        },
+                                    };
                                 }
+                            }
                             _ => (),
-                        }},
+                        },
                         _ => (),
                     };
+                    match key.code {
+                        event::KeyCode::Char(x) => {
+                            if let Some(temp) = &mut app.temp_envs {
+                                if temp.with_name_insertion {
+                                    temp.name_insertion.push(x);
+                                } else if temp.with_kv_insertion {
+                                    if temp.kv_insertion.is_key_active {
+                                        temp.kv_insertion.key.push(x);
+                                    } else {
+                                        temp.kv_insertion.value.push(x);
+                                    }
+                                }
+                            }
+                        }
+                        event::KeyCode::Backspace => {
+                            if let Some(temp) = &mut app.temp_envs {
+                                if temp.with_name_insertion {
+                                    temp.name_insertion.pop();
+                                } else if temp.with_kv_insertion {
+                                    if temp.kv_insertion.is_key_active {
+                                        temp.kv_insertion.key.pop();
+                                    } else {
+                                        temp.kv_insertion.value.pop();
+                                    }
+                                }
+                            }
+                        }
+                        event::KeyCode::Enter => {
+                            if let Some(temp) = &mut app.temp_envs {
+                                if temp.with_name_insertion {
+                                    let name = temp.name_insertion.clone();
+                                    app.new_environment(name);
+                                } else if temp.with_kv_insertion {
+                                    if temp.kv_insertion.is_key_active {
+                                        app.change_active_env_kv()
+                                    } else {
+                                        let name = temp.temp_envs[temp.selected].name.clone();
+                                        let k = temp.kv_insertion.key.clone();
+                                        let v = temp.kv_insertion.value.clone();
+                                        app.add_to_env_kv(name, k, v);
+                                    }
+                                }
+                            }
+                        }
+                        _ => (),
+                    }
                 }
             };
             match key.code {
@@ -266,7 +366,14 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
     let request_data = components::default_block("Request Data");
     let body_tabs = components::tabs(body_titles, "Response tabs", app.resp_tabs.selected_idx);
 
-    let l = layout::LayoutBuilder::default(f, app.has_new_header(), app.has_new_param());
+    let l = layout::LayoutBuilder::default(
+        f,
+        app.has_new_header(),
+        app.has_new_param(),
+        app.has_new_env_name(),
+        app.has_new_env_kv(),
+    );
+
     let data = Paragraph::new(app.address().clone().unwrap_or("".to_string()))
         .wrap(tui::widgets::Wrap { trim: true });
     let verb_str = Paragraph::new(app.verb()).wrap(tui::widgets::Wrap { trim: true });
@@ -324,15 +431,15 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             f.render_widget(data, l.address);
         }
     }
+    match app.selected_main_window {
+        app::MainWindows::EnvironmentScr => show_environments(f, &app, &l),
+        _ => (),
+    }
     if app.error_pop_up.0 {
         if let Some(e) = &app.error_pop_up.1 {
             error_popup(f, e, f.size());
         }
         return;
-    }
-    match app.selected_main_window {
-        app::MainWindows::EnvironmentScr => show_environments(f, &app, &l),
-        _ => (),
     }
 }
 
@@ -526,11 +633,99 @@ fn error_popup<B: Backend>(f: &mut Frame<B>, e: &app::Error, r: Rect) {
 }
 
 fn show_environments<B: Backend>(f: &mut Frame<B>, app: &App, l: &layout::LayoutBuilder) {
-    let environment_names =
-        components::default_block("Environments").style(Style::default().bg(Color::Black));
-    let environment_kvs =
-        components::default_block("Variables").style(Style::default().bg(Color::Black));
+    let mut environment_names = components::default_block("Environments");
+    let mut environment_kvs = components::default_block("Variables");
+    let mut new_name = default_block("new env");
+    let mut new_k = default_block("key");
+    let mut new_v = default_block("value");
+
     f.render_widget(Clear, l.el.all);
-    f.render_widget(environment_names, l.el.names);
-    f.render_widget(environment_kvs, l.el.kvs);
+    if let Some(temp) = &app.temp_envs {
+        match temp.sections {
+            environments::EnvironmentSubSection::Name => {
+                environment_names = to_selected(environment_names);
+            }
+            environments::EnvironmentSubSection::KVs => {
+                environment_kvs = to_selected(environment_kvs);
+            }
+        }
+        let mut current_values = &environments::Environment::default();
+        if temp.temp_envs.len() > 0 {
+            current_values = &temp.temp_envs[temp.selected]
+        };
+        if current_values.envs.len() > 0 {
+            let selected_style = Style::default().add_modifier(Modifier::BOLD);
+            let normal_style = Style::default().bg(Color::Blue);
+            let rows = current_values.envs_to_show.iter().map(|item| {
+                let height = 1;
+                let cells = { vec![Cell::from(item[0].clone()), Cell::from(item[1].clone())] };
+                Row::new(cells).height(height as u16).bottom_margin(0)
+            });
+            let t = Table::new(rows)
+                .block(environment_kvs)
+                .highlight_style(selected_style)
+                .highlight_symbol(">> ")
+                .widths(&[
+                    Constraint::Percentage(50),
+                    Constraint::Length(30),
+                    Constraint::Min(1),
+                ]);
+            let mut state = &mut TableState::default();
+            state.select(Some(temp.selected_kv));
+            f.render_stateful_widget(t, l.el.kvs, &mut state);
+        } else {
+            f.render_widget(environment_kvs, l.el.kvs);
+        }
+        if temp.temp_envs.len() > 0 {
+            let items: Vec<ListItem> = temp
+                .temp_envs
+                .iter()
+                .map(|i| {
+                    ListItem::new(i.name.clone())
+                        .style(Style::default().fg(Color::Black).bg(Color::White))
+                })
+                .collect();
+
+            let items = List::new(items)
+                .block(environment_names)
+                .highlight_style(
+                    Style::default()
+                        .bg(Color::LightGreen)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .highlight_symbol(">> ");
+            let mut state = &mut ListState::default();
+            state.select(Some(temp.selected));
+            f.render_stateful_widget(items, l.el.names, &mut state);
+        } else {
+            f.render_widget(environment_names, l.el.names);
+        }
+    }
+
+    if let Some(temp) = &app.temp_envs {
+        if temp.with_name_insertion {
+            new_name = to_selected(new_name);
+            f.render_widget(
+                Paragraph::new(temp.name_insertion.clone()).block(new_name),
+                l.el.new_name.unwrap_or_default(),
+            );
+        }
+        if temp.with_kv_insertion {
+            if let Some(kv) = &l.el.new_kv {
+                if temp.kv_insertion.is_key_active {
+                    new_k = to_selected(new_k);
+                } else {
+                    new_v = to_selected(new_v);
+                }
+                f.render_widget(
+                    Paragraph::new(temp.kv_insertion.key.clone()).block(new_k),
+                    kv.key,
+                );
+                f.render_widget(
+                    Paragraph::new(temp.kv_insertion.value.clone()).block(new_v),
+                    kv.value,
+                );
+            }
+        }
+    }
 }

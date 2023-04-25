@@ -1,11 +1,21 @@
-use crate::environments::{self, Environment};
+use crate::environments::{self, Environment, KV};
 use serde_json::{self, Serializer};
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    fs,
+    io::{self, BufRead, BufReader, Read, Write},
+    str::{from_utf8, from_utf8_unchecked},
+    string::FromUtf8Error,
+};
 
 use crate::{
     request::{self, HttpVerb, Request},
     response::{self, Response},
 };
+
+const Env_Path: &str = "envs";
+const Req_Path: &str = "requests";
+const Data_Directory: &str = "/home/babak/.config/restopher";
 
 #[derive(Debug)]
 pub enum MainWindows {
@@ -55,6 +65,7 @@ pub enum Error {
     ReqwestErr(reqwest::Error),
     JsonErr(serde_json::Error),
     HeaderIsNotString,
+    FileOperationsErr(io::Error),
     ParamIsNotString,
 }
 impl Error {
@@ -89,9 +100,10 @@ pub struct App<'a> {
     pub resp_tabs: RespTabs<'a>,
     pub error_pop_up: (bool, Option<Error>),
     pub show_environments: bool,
-    all_envs: Vec<Environment<'a>>,
-    pub temp_envs: Option<environments::TempEnv<'a>>,
-    current_env: Option<usize> // index of active environments
+    all_envs: Vec<Environment>,
+    pub temp_envs: Option<environments::TempEnv>,
+    current_env_idx: Option<usize>, // index of active environments
+    pub data_directory: String,
 }
 
 impl<'a> App<'a> {
@@ -105,6 +117,21 @@ impl<'a> App<'a> {
             &ResponseTabs::Headers(0, "Headers"),
             &ResponseTabs::Body(1, "Body"),
         ];
+        let all_envs = match fs::File::open(format!("{}/{}", Data_Directory, Env_Path)) {
+            Ok(f) => {
+                let mut reader = BufReader::new(f);
+                let mut buffer = Vec::new();
+                reader.read_to_end(&mut buffer).unwrap();
+                serde_json::from_str(from_utf8(&buffer).unwrap()).unwrap()
+            }
+            Err(e) => {
+                match e.kind() {
+                    io::ErrorKind::NotFound => (),
+                    _ => (),
+                };
+                Vec::new()
+            }
+        };
         App {
             requests: Some(vec![Request::new()]),
             client: reqwest::Client::new(),
@@ -122,11 +149,12 @@ impl<'a> App<'a> {
             },
             error_pop_up: (false, None),
             temp_header_param_idx: 0,
-            current_env: None,
+            current_env_idx: None,
             show_environments: false,
-            all_envs: Vec::new(),
+            all_envs,
             selected_main_window: MainWindows::RequestScr,
             temp_envs: None,
+            data_directory: Data_Directory.to_string(),
         }
     }
     pub fn has_new_header(&self) -> bool {
@@ -468,7 +496,6 @@ impl<'a> App<'a> {
         self.resp_tabs.selected_idx = idx;
         self.resp_tabs.selected = self.resp_tabs.resp_tabs[idx]
     }
-
     pub fn add_to_kv(&mut self, ch: char) {
         match self.req_tabs.selected {
             RequestTabs::Headers(_, _) => {
@@ -619,38 +646,94 @@ impl<'a> App<'a> {
     pub fn initiate_temp_envs(&mut self) {
         self.temp_envs = Some(environments::TempEnv::new(self.all_envs.clone()));
     }
-    pub fn clear_temp_envs(&mut self) {
+    pub fn clear_temp_envs(&mut self) -> Result<(), Error> {
+        if let Some(idx) = &mut self.current_env_idx {
+            let mut found: bool = false;
+            let name = &self.all_envs[*idx].name;
+            if let Some(temp) = &self.temp_envs {
+                for item in temp.temp_envs.iter().enumerate() {
+                    if item.1.name == *name {
+                        self.current_env_idx = Some(item.0);
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if !found {
+                self.current_env_idx = None;
+            }
+        }
         if let Some(te) = &self.temp_envs {
             if te.changed {
                 self.all_envs = te.temp_envs.clone();
             }
         }
-        if let Some(current_env) = &mut self.current_env {
-            let mut found: bool = false;
-            for item in self.all_envs.iter_mut() {
-                if current_env.name == item.name {
-                    found = true;
-                    self.current_env = Some(item);
-                }
-                if !found {
-                    self.current_env = None;
-                }
-            }
+        self.temp_envs = None;
+
+        let mut env_file = fs::File::create(format!("{}/{}", self.data_directory, Env_Path))
+            .map_err(|e| Error::FileOperationsErr(e))?;
+
+        if self.all_envs.len() > 0 {
+            env_file
+                .write_all(
+                    serde_json::to_string(&self.all_envs.clone())
+                        .map_err(|e| Error::JsonErr(e))?
+                        .as_bytes(),
+                )
+                .map_err(|e| Error::FileOperationsErr(e))?;
         }
-        self.temp_envs = None
+        Ok(())
     }
-    pub fn new_environment(&mut self, name: &'a str) {
+    pub fn new_environment(&mut self, name: String) {
         if let Some(te) = &mut self.temp_envs {
             te.temp_envs.push(environments::Environment::new(name));
+            te.with_name_insertion = false;
             te.changed = true;
         }
     }
-    pub fn new_environment_kv(&mut self, name: &str, key: String, value: String) {
-        if let Some(te) = &mut self.temp_envs {
-            if te.temp_envs.len() > 0 && te.selected < te.temp_envs.len() {
-                te.temp_envs[te.selected].envs.insert(key, value);
-                te.changed = true;
+    pub fn change_active_env_panel(&mut self) {
+        if let Some(temp) = &mut self.temp_envs {
+            temp.change_environment_subsection()
+        }
+    }
+    pub fn has_new_env_name(&self) -> bool {
+        match &self.temp_envs {
+            Some(t) => t.with_name_insertion,
+            None => false,
+        }
+    }
+    pub fn has_new_env_kv(&self) -> bool {
+        match &self.temp_envs {
+            Some(t) => t.with_kv_insertion,
+            None => false,
+        }
+    }
+    pub fn change_active_env_kv(&mut self) {
+        match &mut self.temp_envs {
+            Some(t) => t.kv_insertion.is_key_active = !t.kv_insertion.is_key_active,
+            None => (),
+        }
+    }
+    pub fn add_to_env_kv(&mut self, name: String, key: String, value: String) {
+        if name == "".to_string() || key == "".to_string() || value == "".to_string() {
+            return;
+        }
+        match &mut self.temp_envs {
+            Some(t) => {
+                for item in t.temp_envs.iter_mut() {
+                    if item.name == name {
+                        item.envs.insert(key.clone(), value.clone());
+                        item.envs_to_show.push([key, value]);
+                        break;
+                    }
+                }
+                t.kv_insertion.key = "".to_string();
+                t.kv_insertion.value = "".to_string();
+                t.with_kv_insertion = false;
+                t.kv_insertion.is_key_active = true;
+                t.changed = true;
             }
+            None => (),
         }
     }
 }

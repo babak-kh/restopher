@@ -2,6 +2,15 @@ use tui::backend::Backend;
 use tui::layout::{Constraint, Direction, Layout, Margin, Rect};
 use tui::Frame;
 
+pub struct KV {
+    pub key: Rect,
+    pub value: Rect,
+}
+impl Default for KV {
+    fn default() -> Self {
+        KV { key: Rect::default(), value: Rect::default() }
+    }
+}
 pub struct LayoutBuilder {
     pub verb: Rect,
     pub address: Rect,
@@ -16,29 +25,59 @@ pub struct LayoutBuilder {
 pub struct EnvironmentLayout {
     pub all: Rect,
     pub names: Rect,
+    pub new_name: Option<Rect>,
+    pub new_kv: Option<KV>,
     pub kvs: Rect,
 }
 impl EnvironmentLayout {
-    pub fn new<B: Backend>(f: &mut Frame<B>) -> Self {
+    pub fn new<B: Backend>(f: &mut Frame<B>, with_new_name: bool, with_new_kv: bool) -> Self {
         let all = f.size().inner(&Margin {
             vertical: 10,
             horizontal: 10,
         });
+
+        let mut names = Rect::default();
+        let mut kvs = Rect::default();
+        let mut new_name = None;
+        let mut new_kv = None;
+
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![Constraint::Percentage(20), Constraint::Percentage(80)])
             .split(all);
-
+        names = chunks[0];
+        kvs = chunks[1];
+        if with_new_name {
+            let nn = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(vec![Constraint::Percentage(90), Constraint::Percentage(10)])
+                .split(chunks[0]);
+            new_name = Some(nn[1]);
+            names = nn[0];
+        };
+        if with_new_kv {
+            let nn = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(vec![Constraint::Percentage(90), Constraint::Percentage(10)])
+                .split(chunks[1]);
+            let kv_layout = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(nn[1]);
+            new_kv = Some(KV {
+                key: kv_layout[0],
+                value: kv_layout[1],
+            });
+            kvs = nn[0];
+        };
         EnvironmentLayout {
-            names: chunks[0],
-            kvs: chunks[1],
+            names,
+            kvs,
+            new_kv,
+            new_name,
             all,
         }
     }
-}
-pub struct KV {
-    pub key: Rect,
-    pub value: Rect,
 }
 
 impl LayoutBuilder {
@@ -46,6 +85,8 @@ impl LayoutBuilder {
         base: &mut Frame<B>,
         with_new_header: bool,
         with_new_param: bool,
+        with_new_name: bool,
+        with_new_kv: bool,
     ) -> Self {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -94,7 +135,7 @@ impl LayoutBuilder {
             resp_status_code,
             req_data,
             new_header,
-            el: EnvironmentLayout::new(base),
+            el: EnvironmentLayout::new(base, with_new_name, with_new_kv),
         }
     }
 }
