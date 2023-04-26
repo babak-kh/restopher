@@ -1,4 +1,5 @@
 use crate::environments::{self, Environment, KV};
+use regex::Regex;
 use serde_json::{self, Serializer};
 use std::{
     collections::HashMap,
@@ -13,9 +14,11 @@ use crate::{
     response::{self, Response},
 };
 
-const Env_Path: &str = "envs";
-const Req_Path: &str = "requests";
-const Data_Directory: &str = "/home/babak/.config/restopher";
+const ENV_PATH: &str = "envs";
+const REQ_PATH: &str = "requests";
+const DATA_DIRECTORY: &str = "/home/babak/.config/restopher";
+const START_ENV_TOKEN: &str = "{{";
+const END_ENV_TOKEN: &str = "}}";
 
 #[derive(Debug)]
 pub enum MainWindows {
@@ -104,6 +107,7 @@ pub struct App<'a> {
     pub temp_envs: Option<environments::TempEnv>,
     current_env_idx: Option<usize>, // index of active environments
     pub data_directory: String,
+    regex_replacer: regex::Regex,
 }
 
 impl<'a> App<'a> {
@@ -117,7 +121,7 @@ impl<'a> App<'a> {
             &ResponseTabs::Headers(0, "Headers"),
             &ResponseTabs::Body(1, "Body"),
         ];
-        let all_envs = match fs::File::open(format!("{}/{}", Data_Directory, Env_Path)) {
+        let all_envs = match fs::File::open(format!("{}/{}", DATA_DIRECTORY, ENV_PATH)) {
             Ok(f) => {
                 let mut reader = BufReader::new(f);
                 let mut buffer = Vec::new();
@@ -154,7 +158,8 @@ impl<'a> App<'a> {
             all_envs,
             selected_main_window: MainWindows::RequestScr,
             temp_envs: None,
-            data_directory: Data_Directory.to_string(),
+            data_directory: DATA_DIRECTORY.to_string(),
+            regex_replacer: Regex::new("{{.*}}").unwrap(),
         }
     }
     pub fn has_new_header(&self) -> bool {
@@ -401,9 +406,9 @@ impl<'a> App<'a> {
                 HttpVerb::GET => {
                     let r = self
                         .client
-                        .get(&req.address.to_string())
-                        .query(&req.handle_params())
-                        .headers(req.handle_headers())
+                        .get(self.replace_envs(req.address.to_string()))
+                        .query(self.replace_envs(req.handle_params()))
+                        .headers(self.replace_envs(req.handle_headers()))
                         .send()
                         .await
                         .map_err(|e| Error::ReqwestErr(e))?;
@@ -670,7 +675,7 @@ impl<'a> App<'a> {
         }
         self.temp_envs = None;
 
-        let mut env_file = fs::File::create(format!("{}/{}", self.data_directory, Env_Path))
+        let mut env_file = fs::File::create(format!("{}/{}", DATA_DIRECTORY, ENV_PATH))
             .map_err(|e| Error::FileOperationsErr(e))?;
 
         if self.all_envs.len() > 0 {
@@ -735,5 +740,72 @@ impl<'a> App<'a> {
             }
             None => (),
         }
+    }
+    fn replace_envs<T>(&self, to_replace: T) -> T
+    where
+        T: Clone + EnvReplacer,
+    {
+        match self.current_env_idx {
+            Some(idx) => to_replace.replace_env(&self.regex_replacer, &self.all_envs[idx].envs),
+            None => to_replace,
+        }
+    }
+}
+
+trait EnvReplacer {
+    fn replace_env(self, pattern: &Regex, replace_kvs: &HashMap<String, String>) -> Self
+    where
+        Self: Sized,
+    {
+        self
+    }
+}
+impl EnvReplacer for String {
+    fn replace_env(self, pattern: &Regex, replace_kvs: &HashMap<String, String>) -> Self {
+        let mut result = self.clone();
+        for (idx, matched) in pattern.captures_iter(&self).enumerate() {
+            if idx == 0 {
+                continue;
+            }
+            match replace_kvs.get(&matched[1].to_string()) {
+                Some(s) => result = result.replacen(&matched[1], s, 1),
+                None => (),
+            };
+        }
+        self
+    }
+}
+
+impl EnvReplacer for HashMap<String, String> {
+    fn replace_env(
+        self,
+        pattern: &Regex,
+        replace_kvs: &HashMap<String, String>,
+    ) -> HashMap<String, String> {
+        let mut result = self.clone();
+        for (key, value) in self.into_iter() {
+            let mut new_key = String::new();
+            let mut new_value = String::new();
+            for (idx, matched) in pattern.captures_iter(&key).enumerate() {
+                if idx == 0 {
+                    continue;
+                }
+                match replace_kvs.get(&matched[1].to_string()) {
+                    Some(s) => new_key = key.clone().replacen(&matched[1], s, 1),
+                    None => new_key = key.clone(),
+                };
+            }
+            for (idx, matched) in pattern.captures_iter(&value).enumerate() {
+                if idx == 0 {
+                    continue;
+                }
+                match replace_kvs.get(&matched[1].to_string()) {
+                    Some(s) => new_value = value.clone().replacen(&matched[1], s, 1),
+                    None => new_value = value.clone(),
+                };
+            }
+            result.insert(new_key, new_value);
+        }
+        result
     }
 }

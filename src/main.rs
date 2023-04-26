@@ -259,12 +259,58 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                                 if let Some(temp) = &mut app.temp_envs {
                                     match temp.sections {
                                         environments::EnvironmentSubSection::Name => {
-                                            temp.temp_envs.remove(temp.selected);
-                                        },
+                                            temp.remove_name();
+                                            continue;
+                                        }
                                         environments::EnvironmentSubSection::KVs => {
-                                            temp.temp_envs[temp.selected].envs_to_show.remove(temp.selected_kv);
-                                        },
+                                            temp.remove_kv();
+                                            continue;
+                                        }
                                     };
+                                }
+                            }
+                            event::KeyCode::Char('j') => {
+                                if let Some(temp) = &mut app.temp_envs {
+                                    match temp.sections {
+                                        environments::EnvironmentSubSection::Name => {
+                                            temp.selected += 1;
+                                            if temp.selected >= temp.temp_envs.len() {
+                                                temp.selected = 0;
+                                            }
+                                        }
+                                        environments::EnvironmentSubSection::KVs => {
+                                            if temp.temp_envs.len() > 0 {
+                                                let t = &temp.temp_envs[temp.selected];
+                                                temp.selected_kv += 1;
+                                                if temp.selected_kv >= temp.temp_envs.len() {
+                                                    temp.selected_kv = 0;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            event::KeyCode::Char('k') => {
+                                if let Some(temp) = &mut app.temp_envs {
+                                    match temp.sections {
+                                        environments::EnvironmentSubSection::Name => {
+                                            if temp.selected == 0 {
+                                                temp.selected = temp.temp_envs.len() - 1;
+                                            } else {
+                                                temp.selected -= 1;
+                                            }
+                                        }
+                                        environments::EnvironmentSubSection::KVs => {
+                                            if temp.temp_envs.len() > 0 {
+                                                let t = &temp.temp_envs[temp.selected];
+                                                if temp.selected_kv == 0 {
+                                                    temp.selected_kv = t.envs.len() - 1;
+                                                } else {
+                                                    temp.selected_kv -= 1;
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                             _ => (),
@@ -682,7 +728,7 @@ fn show_environments<B: Backend>(f: &mut Frame<B>, app: &App, l: &layout::Layout
                 .iter()
                 .map(|i| {
                     ListItem::new(i.name.clone())
-                        .style(Style::default().fg(Color::Black).bg(Color::White))
+                        .style(Style::default().fg(Color::White))
                 })
                 .collect();
 

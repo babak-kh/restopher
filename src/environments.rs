@@ -5,7 +5,7 @@ use std::collections::HashMap;
 pub struct Environment {
     pub name: String,
     pub envs: HashMap<String, String>,
-    pub envs_to_show: Vec<[String;2]>
+    pub envs_to_show: Vec<[String; 2]>,
 }
 impl Environment {
     pub fn new(name: String) -> Self {
@@ -76,5 +76,17 @@ impl TempEnv {
             EnvironmentSubSection::Name => self.sections = EnvironmentSubSection::KVs,
             EnvironmentSubSection::KVs => self.sections = EnvironmentSubSection::Name,
         }
+    }
+    pub fn remove_name(&mut self) {
+        self.temp_envs.remove(self.selected);
+        self.selected = 0;
+        self.changed = true;
+    }
+    pub fn remove_kv(&mut self) {
+        let name = self.temp_envs[self.selected].envs_to_show[self.selected_kv][0].clone();
+        self.temp_envs[self.selected].envs.remove(&name);
+        self.temp_envs[self.selected].envs_to_show.remove(self.selected_kv);
+        self.selected_kv = 0;
+        self.changed = true;
     }
 }
