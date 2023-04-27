@@ -8,7 +8,10 @@ pub struct KV {
 }
 impl Default for KV {
     fn default() -> Self {
-        KV { key: Rect::default(), value: Rect::default() }
+        KV {
+            key: Rect::default(),
+            value: Rect::default(),
+        }
     }
 }
 pub struct LayoutBuilder {
@@ -20,6 +23,7 @@ pub struct LayoutBuilder {
     pub req_tabs: Rect,
     pub req_data: Rect,
     pub new_header: Option<KV>,
+    pub env_selection: Rect,
     pub el: EnvironmentLayout,
 }
 pub struct EnvironmentLayout {
@@ -100,7 +104,11 @@ impl LayoutBuilder {
             .split(base.size());
         let chunks_h = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints(vec![Constraint::Percentage(5), Constraint::Percentage(95)])
+            .constraints(vec![
+                Constraint::Percentage(5),
+                Constraint::Percentage(5),
+                Constraint::Percentage(95),
+            ])
             .split(chunks[0]);
         let status_code_body_tabs = Layout::default()
             .direction(Direction::Horizontal)
@@ -128,7 +136,8 @@ impl LayoutBuilder {
         }
         LayoutBuilder {
             verb: chunks_h[0],
-            address: chunks_h[1],
+            address: chunks_h[2],
+            env_selection: chunks_h[1],
             body: chunks[4],
             req_tabs: chunks[1],
             body_tabs,

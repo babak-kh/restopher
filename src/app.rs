@@ -1,9 +1,11 @@
 use crate::environments::{self, Environment, KV};
 use regex::Regex;
+use reqwest::header::HeaderMap;
 use serde_json::{self, Serializer};
 use std::{
-    collections::HashMap,
+    collections::{hash_map::RandomState, HashMap},
     fs,
+    hash::Hash,
     io::{self, BufRead, BufReader, Read, Write},
     str::{from_utf8, from_utf8_unchecked},
     string::FromUtf8Error,
@@ -32,6 +34,7 @@ pub enum Windows {
     Response,
     RequestData,
     Verb,
+    EnvSelection,
 }
 #[derive(Debug)]
 pub enum ResponseTabs<'a> {
@@ -103,9 +106,9 @@ pub struct App<'a> {
     pub resp_tabs: RespTabs<'a>,
     pub error_pop_up: (bool, Option<Error>),
     pub show_environments: bool,
-    all_envs: Vec<Environment>,
+    pub all_envs: Vec<Environment>,
     pub temp_envs: Option<environments::TempEnv>,
-    current_env_idx: Option<usize>, // index of active environments
+    pub current_env_idx: Option<usize>, // index of active environments
     pub data_directory: String,
     regex_replacer: regex::Regex,
 }
@@ -159,7 +162,12 @@ impl<'a> App<'a> {
             selected_main_window: MainWindows::RequestScr,
             temp_envs: None,
             data_directory: DATA_DIRECTORY.to_string(),
-            regex_replacer: Regex::new("{{.*}}").unwrap(),
+            regex_replacer: Regex::new(&format!(
+                "{}.*{}",
+                regex::escape(START_ENV_TOKEN),
+                regex::escape(END_ENV_TOKEN)
+            ))
+            .unwrap(),
         }
     }
     pub fn has_new_header(&self) -> bool {
@@ -226,6 +234,7 @@ impl<'a> App<'a> {
             Windows::Response => self.selected_window = Windows::RequestData,
             Windows::Verb => (),
             Windows::RequestData => self.selected_window = Windows::Address,
+            Windows::EnvSelection => (),
         };
     }
     pub fn down(&mut self) {
@@ -234,22 +243,25 @@ impl<'a> App<'a> {
             Windows::Response => self.selected_window = Windows::Address,
             Windows::Verb => self.selected_window = Windows::RequestData,
             Windows::RequestData => self.selected_window = Windows::Response,
+            Windows::EnvSelection => self.selected_window = Windows::RequestData,
         };
     }
     pub fn right(&mut self) {
         match self.selected_window {
             Windows::Address => (),
             Windows::Response => (),
-            Windows::Verb => self.selected_window = Windows::Address,
+            Windows::Verb => self.selected_window = Windows::EnvSelection,
             Windows::RequestData => (),
+            Windows::EnvSelection => self.selected_window = Windows::Address,
         };
     }
     pub fn left(&mut self) {
         match self.selected_window {
-            Windows::Address => self.selected_window = Windows::Verb,
+            Windows::Address => self.selected_window = Windows::EnvSelection,
             Windows::Response => (),
             Windows::Verb => (),
             Windows::RequestData => (),
+            Windows::EnvSelection => self.selected_window = Windows::Verb,
         };
     }
     fn current_request_as_mut(&mut self) -> Option<&mut Request> {
@@ -400,15 +412,30 @@ impl<'a> App<'a> {
         None
     }
     pub async fn call_request(&mut self) -> Result<String, Error> {
+        let mut addr = String::new();
+        let mut params = HashMap::new();
+        let mut headers = HeaderMap::new();
+        let mut body = String::new();
+
+        if let Some(request) = &self.requests {
+            let req = &request[self.current_request_idx];
+            params = self.replace_envs(req.handle_params());
+            println!("{:?}", params);
+            addr = self.replace_envs(req.address.to_string());
+            headers = (&self.replace_envs(req.handle_headers()))
+                .try_into()
+                .unwrap();
+            //body = req.handle_json_body().map(|_| "".to_string())?;
+        }
         if let Some(requests) = &mut self.requests {
             let req = &mut requests[self.current_request_idx];
             match req.verb {
                 HttpVerb::GET => {
                     let r = self
                         .client
-                        .get(self.replace_envs(req.address.to_string()))
-                        .query(self.replace_envs(req.handle_params()))
-                        .headers(self.replace_envs(req.handle_headers()))
+                        .get(addr)
+                        .query(&params)
+                        .headers(headers)
                         .send()
                         .await
                         .map_err(|e| Error::ReqwestErr(e))?;
@@ -422,10 +449,10 @@ impl<'a> App<'a> {
                 HttpVerb::POST => {
                     let r = self
                         .client
-                        .post(&req.address.to_string())
-                        .query(&req.handle_params())
-                        .headers(req.handle_headers())
-                        .json(&req.handle_json_body().map(|_| "".to_string())?)
+                        .post(addr)
+                        .query(&params)
+                        .headers(headers)
+                        .json(&body)
                         .send()
                         .await
                         .map_err(|e| Error::ReqwestErr(e))?;
@@ -439,10 +466,10 @@ impl<'a> App<'a> {
                 HttpVerb::PUT => {
                     let r = self
                         .client
-                        .put(&req.address.to_string())
-                        .query(&req.handle_params())
-                        .headers(req.handle_headers())
-                        .json(&req.handle_json_body().map(|_| "".to_string())?)
+                        .put(addr)
+                        .query(&params)
+                        .headers(headers)
+                        .json(&body)
                         .send()
                         .await
                         .map_err(|e| Error::ReqwestErr(e))?;
@@ -456,9 +483,9 @@ impl<'a> App<'a> {
                 HttpVerb::DELETE => {
                     let r = self
                         .client
-                        .get(&req.address.to_string())
-                        .query(&req.handle_params())
-                        .headers(req.handle_headers())
+                        .get(addr)
+                        .query(&params)
+                        .headers(headers)
                         .send()
                         .await
                         .map_err(|e| Error::ReqwestErr(e))?;
@@ -750,6 +777,40 @@ impl<'a> App<'a> {
             None => to_replace,
         }
     }
+    pub fn next_env(&mut self) {
+        if self.all_envs.len() > 0 {
+            match self.current_env_idx {
+                None => self.current_env_idx = Some(0),
+                Some(mut x) => {
+                    x = x + 1;
+                    self.current_env_idx = Some(x);
+                    if x == self.all_envs.len() {
+                        self.current_env_idx = Some(0);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn pre_env(&mut self) {
+        if self.all_envs.len() > 0 {
+            match self.current_env_idx {
+                None => self.current_env_idx = Some(0),
+                Some(mut x) => {
+                    if x > 0 {
+                        x = x - 1;
+                    }
+                    self.current_env_idx = Some(x);
+                    if x == self.all_envs.len() {
+                        self.current_env_idx = Some(0);
+                    }
+                }
+            }
+        }
+    }
+    pub fn deselect_env(&mut self) {
+        self.current_env_idx = None;
+    }
 }
 
 trait EnvReplacer {
@@ -764,43 +825,58 @@ impl EnvReplacer for String {
     fn replace_env(self, pattern: &Regex, replace_kvs: &HashMap<String, String>) -> Self {
         let mut result = self.clone();
         for (idx, matched) in pattern.captures_iter(&self).enumerate() {
-            if idx == 0 {
-                continue;
-            }
-            match replace_kvs.get(&matched[1].to_string()) {
-                Some(s) => result = result.replacen(&matched[1], s, 1),
+            //            if idx == 0 {
+            //                continue;
+            //            }
+            match replace_kvs.get(
+                &matched[0]
+                    .trim_end_matches(END_ENV_TOKEN)
+                    .trim_start_matches(START_ENV_TOKEN)
+                    .to_string(),
+            ) {
+                Some(s) => result = result.replacen(&matched[0], s, 1),
                 None => (),
             };
         }
-        self
+        result
     }
 }
 
-impl EnvReplacer for HashMap<String, String> {
+impl EnvReplacer for HashMap<String, String, RandomState> {
     fn replace_env(
         self,
         pattern: &Regex,
-        replace_kvs: &HashMap<String, String>,
+        replace_kvs: &HashMap<String, String, RandomState>,
     ) -> HashMap<String, String> {
-        let mut result = self.clone();
+        let mut result = HashMap::new();
         for (key, value) in self.into_iter() {
             let mut new_key = String::new();
             let mut new_value = String::new();
             for (idx, matched) in pattern.captures_iter(&key).enumerate() {
-                if idx == 0 {
-                    continue;
-                }
-                match replace_kvs.get(&matched[1].to_string()) {
-                    Some(s) => new_key = key.clone().replacen(&matched[1], s, 1),
+                let to_match = &matched[0];
+                match replace_kvs.get(
+                    &to_match
+                        .trim_end_matches(END_ENV_TOKEN)
+                        .trim_start_matches(START_ENV_TOKEN)
+                        .to_string(),
+                ) {
+                    Some(s) => {
+                        new_key = key.clone().replacen(to_match, s, 1);
+                    }
                     None => new_key = key.clone(),
                 };
             }
             for (idx, matched) in pattern.captures_iter(&value).enumerate() {
-                if idx == 0 {
-                    continue;
-                }
-                match replace_kvs.get(&matched[1].to_string()) {
-                    Some(s) => new_value = value.clone().replacen(&matched[1], s, 1),
+                let to_match = &matched[0];
+                match replace_kvs.get(
+                    &to_match
+                        .trim_end_matches(END_ENV_TOKEN)
+                        .trim_start_matches(START_ENV_TOKEN)
+                        .to_string(),
+                ) {
+                    Some(s) => {
+                        new_value = value.clone().replacen(to_match, s, 1);
+                    }
                     None => new_value = value.clone(),
                 };
             }

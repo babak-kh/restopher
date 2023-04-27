@@ -202,6 +202,12 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                             }
                             app::RequestTabs::Body(_, _) => (),
                         },
+                        Windows::EnvSelection => match key.code {
+                            event::KeyCode::Up => app.next_env(),
+                            event::KeyCode::Down => app.pre_env(),
+                            event::KeyCode::Esc => app.deselect_env(),
+                            _ => (),
+                        },
                     };
                 }
                 app::MainWindows::EnvironmentScr => {
@@ -411,6 +417,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
     let body = components::default_block("Response");
     let request_data = components::default_block("Request Data");
     let body_tabs = components::tabs(body_titles, "Response tabs", app.resp_tabs.selected_idx);
+    let env_block = components::default_block("environment");
 
     let l = layout::LayoutBuilder::default(
         f,
@@ -423,29 +430,36 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
     let data = Paragraph::new(app.address().clone().unwrap_or("".to_string()))
         .wrap(tui::widgets::Wrap { trim: true });
     let verb_str = Paragraph::new(app.verb()).wrap(tui::widgets::Wrap { trim: true });
+    let env_text = match app.current_env_idx {
+        Some(idx) => app.all_envs[idx].name.clone(),
+        None => "".to_string(),
+    };
+    let env_text = Paragraph::new(env_text).wrap(tui::widgets::Wrap { trim: true });
 
     f.render_widget(tabs, l.req_tabs);
     f.render_widget(body_tabs, l.body_tabs);
 
     match app.selected_window {
         Windows::Address => {
-            let address = address
-                .border_type(tui::widgets::BorderType::Thick)
-                .style(Style::default().fg(Color::Rgb(240, 134, 110)));
+            let address = to_selected(address);
             let data = data.block(address);
             let verb = verb_str.block(verb);
+            let env_block = env_text.block(env_block);
             handle_response_data(app, f, body, &l);
             handle_request_data(app, f, request_data, &l);
             f.render_widget(verb, l.verb);
             f.render_widget(data, l.address);
+            f.render_widget(env_block, l.env_selection);
         }
         Windows::Response => {
-            let body = body.border_type(tui::widgets::BorderType::Thick);
+            let body = to_selected(body);
             let data = data.block(address);
             let verb = verb_str.block(verb);
+            let env_block = env_text.block(env_block);
             handle_request_data(app, f, request_data, &l);
             f.render_widget(verb, l.verb);
             f.render_widget(data, l.address);
+            f.render_widget(env_block, l.env_selection);
             handle_response_data(
                 app,
                 f,
@@ -454,24 +468,32 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             );
         }
         Windows::Verb => {
-            let verb = verb.border_type(tui::widgets::BorderType::Thick);
+            let verb = to_selected(verb);
             let data = data.block(address);
             let verb = verb_str.block(verb);
+            let env_block = env_text.block(env_block);
             handle_request_data(app, f, request_data, &l);
             f.render_widget(verb, l.verb);
             f.render_widget(data, l.address);
+            f.render_widget(env_block, l.env_selection);
             handle_response_data(app, f, body, &l);
         }
         Windows::RequestData => {
             let data = data.block(address);
             let verb = verb_str.block(verb);
-
-            handle_request_data(
-                app,
-                f,
-                request_data.border_type(tui::widgets::BorderType::Thick),
-                &l,
-            );
+            let env_block = env_text.block(env_block);
+            f.render_widget(env_block, l.env_selection);
+            handle_request_data(app, f, to_selected(request_data), &l);
+            handle_response_data(app, f, body, &l);
+            f.render_widget(verb, l.verb);
+            f.render_widget(data, l.address);
+        }
+        Windows::EnvSelection => {
+            let data = data.block(address);
+            let verb = verb_str.block(verb);
+            let env_block = env_text.block(to_selected(env_block));
+            f.render_widget(env_block, l.env_selection);
+            handle_request_data(app, f, request_data, &l);
             handle_response_data(app, f, body, &l);
             f.render_widget(verb, l.verb);
             f.render_widget(data, l.address);
@@ -675,6 +697,7 @@ fn error_popup<B: Backend>(f: &mut Frame<B>, e: &app::Error, r: Rect) {
         .block(block)
         .style(Style::default().fg(Color::Red));
     //f.render_widget(Clear, area); //this clears out the background
+    f.render_widget(Clear, area);
     f.render_widget(msg, area);
 }
 
@@ -726,10 +749,7 @@ fn show_environments<B: Backend>(f: &mut Frame<B>, app: &App, l: &layout::Layout
             let items: Vec<ListItem> = temp
                 .temp_envs
                 .iter()
-                .map(|i| {
-                    ListItem::new(i.name.clone())
-                        .style(Style::default().fg(Color::White))
-                })
+                .map(|i| ListItem::new(i.name.clone()).style(Style::default().fg(Color::White)))
                 .collect();
 
             let items = List::new(items)

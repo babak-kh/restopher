@@ -109,17 +109,15 @@ impl Request {
             new_param: None,
         }
     }
-    pub fn handle_headers(&self) -> HeaderMap {
-        let h = self
+    pub fn handle_headers(&self) -> HashMap<String,String> {
+        self
             .headers
             .clone()
             .unwrap_or(vec![("".to_string(), "".to_string(), false)])
             .iter()
             .filter(|item| item.2)
             .map(|item| (item.0.clone(), item.1.clone()))
-            .collect::<HashMap<String,String>>();
-        let headers: HeaderMap = (&h).try_into().unwrap();
-        headers
+            .collect::<HashMap<String,String>>()
     }
     pub fn handle_params(&self) -> HashMap<String,String> {
         let h = self
