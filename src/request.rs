@@ -82,12 +82,22 @@ impl KV {
         return self.key.active;
     }
 }
+#[derive(Debug)]
+pub enum BodyKind {
+    JSON,
+    TEXT,
+}
+#[derive(Debug)]
+pub struct Body{
+    kind: BodyKind,
+    payload: String,
+}
 
 #[derive(Debug)]
 pub struct Request {
     pub headers: Option<Vec<(String, String, bool)>>,
     pub params: Option<Vec<(String, String, bool)>>,
-    pub body: Option<String>,
+    pub body: Option<Body>,
     pub address: Address,
     pub verb: HttpVerb,
     pub response: Option<Response>,

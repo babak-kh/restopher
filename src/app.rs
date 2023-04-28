@@ -420,7 +420,6 @@ impl<'a> App<'a> {
         if let Some(request) = &self.requests {
             let req = &request[self.current_request_idx];
             params = self.replace_envs(req.handle_params());
-            println!("{:?}", params);
             addr = self.replace_envs(req.address.to_string());
             headers = (&self.replace_envs(req.handle_headers()))
                 .try_into()
@@ -850,8 +849,8 @@ impl EnvReplacer for HashMap<String, String, RandomState> {
     ) -> HashMap<String, String> {
         let mut result = HashMap::new();
         for (key, value) in self.into_iter() {
-            let mut new_key = String::new();
-            let mut new_value = String::new();
+            let mut new_key = key.clone();
+            let mut new_value = value.clone();
             for (idx, matched) in pattern.captures_iter(&key).enumerate() {
                 let to_match = &matched[0];
                 match replace_kvs.get(
