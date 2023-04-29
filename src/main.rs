@@ -7,6 +7,7 @@ mod response;
 use components::{default_block, to_selected};
 use std::io;
 use tokio;
+use tui_textarea::TextArea;
 
 use app::{App, Windows};
 use crossterm::{
@@ -200,7 +201,30 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                                     _ => (),
                                 };
                             }
-                            app::RequestTabs::Body(_, _) => (),
+                            app::RequestTabs::Body(_, _) => {
+                                match key.modifiers {
+                                    event::KeyModifiers::CONTROL => match key.code {
+                                        event::KeyCode::Char('n') => {
+                                            app.change_body_kind();
+                                            continue;
+                                        }
+                                        _ => (),
+                                    },
+                                    _ => (),
+                                };
+                                match key.code {
+                                    event::KeyCode::Char(x) => {
+                                        app.add_to_req_body(x);
+                                    }
+                                    event::KeyCode::Backspace => {
+                                        app.remove_from_req_body();
+                                    }
+                                    event::KeyCode::Enter => {
+                                        app.add_to_req_body('\n');
+                                    }
+                                    _ => (),
+                                };
+                            }
                         },
                         Windows::EnvSelection => match key.code {
                             event::KeyCode::Up => app.next_env(),
@@ -416,8 +440,15 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
     let verb = components::default_block("Verb");
     let body = components::default_block("Response");
     let request_data = components::default_block("Request Data");
-    let body_tabs = components::tabs(body_titles, "Response tabs", app.resp_tabs.selected_idx);
-    let env_block = components::default_block("environment");
+    let body_tabs = components::tabs(body_titles, "Response Tabs", app.resp_tabs.selected_idx);
+    let env_block = components::default_block("Environment");
+    let req_names = components::default_block("Requests");
+    let mut body_kind_select = false;
+
+    match app.req_tabs.selected {
+        app::RequestTabs::Body(_, _) => body_kind_select = true,
+        _ => (),
+    }
 
     let l = layout::LayoutBuilder::default(
         f,
@@ -425,6 +456,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
         app.has_new_param(),
         app.has_new_env_name(),
         app.has_new_env_kv(),
+        body_kind_select,
     );
 
     let data = Paragraph::new(app.address().clone().unwrap_or("".to_string()))
@@ -445,7 +477,8 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             let data = data.block(address);
             let verb = verb_str.block(verb);
             let env_block = env_text.block(env_block);
-            handle_response_data(app, f, body, &l);
+            let req_names_tabs = components::tabs(app.get_req_names(), "Requests", app.current_request_idx);
+            handle_response_data(app, f, bod:, &l);
             handle_request_data(app, f, request_data, &l);
             f.render_widget(verb, l.verb);
             f.render_widget(data, l.address);
@@ -498,6 +531,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             f.render_widget(verb, l.verb);
             f.render_widget(data, l.address);
         }
+        Windows::ReqNames => todo!(),
     }
     match app.selected_main_window {
         app::MainWindows::EnvironmentScr => show_environments(f, &app, &l),
@@ -629,7 +663,27 @@ fn handle_request_data<B: Backend>(
             }
         }
 
-        app::RequestTabs::Body(_, _) => f.render_widget(b, r.req_data),
+        app::RequestTabs::Body(_, _) => {
+            let mut kind_block = default_block("Content Type");
+            match app.selected_window {
+                Windows::RequestData => {
+                    kind_block = to_selected(kind_block);
+                }
+                _ => (),
+            }
+            let body = app.req_body();
+            let kind = Paragraph::new(body.kind.clone().to_string())
+                .wrap(tui::widgets::Wrap { trim: true })
+                .block(kind_block);
+
+            let mut txt = TextArea::from(body.payload.unwrap_or("".to_string()).split("\n"));
+            txt.set_cursor_line_style(Style::default());
+            txt.move_cursor(tui_textarea::CursorMove::Bottom);
+            txt.move_cursor(tui_textarea::CursorMove::End);
+            txt.set_block(b);
+            f.render_widget(txt.widget(), r.req_data);
+            f.render_widget(kind, r.body_kind.unwrap());
+        }
     }
 }
 
@@ -696,7 +750,6 @@ fn error_popup<B: Backend>(f: &mut Frame<B>, e: &app::Error, r: Rect) {
         .wrap(tui::widgets::Wrap { trim: true })
         .block(block)
         .style(Style::default().fg(Color::Red));
-    //f.render_widget(Clear, area); //this clears out the background
     f.render_widget(Clear, area);
     f.render_widget(msg, area);
 }

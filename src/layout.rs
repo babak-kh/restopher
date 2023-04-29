@@ -15,6 +15,7 @@ impl Default for KV {
     }
 }
 pub struct LayoutBuilder {
+    pub req_names: Rect,
     pub verb: Rect,
     pub address: Rect,
     pub body_tabs: Rect,
@@ -24,6 +25,7 @@ pub struct LayoutBuilder {
     pub req_data: Rect,
     pub new_header: Option<KV>,
     pub env_selection: Rect,
+    pub body_kind: Option<Rect>,
     pub el: EnvironmentLayout,
 }
 pub struct EnvironmentLayout {
@@ -91,15 +93,17 @@ impl LayoutBuilder {
         with_new_param: bool,
         with_new_name: bool,
         with_new_kv: bool,
+        body_selected: bool,
     ) -> Self {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints(vec![
+                Constraint::Percentage(6),  // req names
                 Constraint::Percentage(6),  // verb + address
                 Constraint::Percentage(6),  // req tabs
-                Constraint::Percentage(44), // req headers/body/params
+                Constraint::Percentage(41), // req headers/body/params
                 Constraint::Percentage(6),  // resp headers/body tabs
-                Constraint::Percentage(38), // response
+                Constraint::Percentage(35), // response
             ])
             .split(base.size());
         let chunks_h = Layout::default()
@@ -109,21 +113,21 @@ impl LayoutBuilder {
                 Constraint::Percentage(5),
                 Constraint::Percentage(95),
             ])
-            .split(chunks[0]);
+            .split(chunks[1]);
         let status_code_body_tabs = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![Constraint::Percentage(90), Constraint::Percentage(10)])
-            .split(chunks[3]);
+            .split(chunks[4]);
         let body_tabs = status_code_body_tabs[0];
         let resp_status_code = status_code_body_tabs[1];
-        let mut req_data = chunks[2];
+        let mut req_data = chunks[3];
         let mut new_header: Option<KV> = None;
         if with_new_header | with_new_param {
             let new_header_layout = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints(vec![Constraint::Percentage(90), Constraint::Percentage(10)])
                 .margin(0)
-                .split(chunks[2]);
+                .split(chunks[3]);
             req_data = new_header_layout[0];
             let kv_layout = Layout::default()
                 .direction(Direction::Horizontal)
@@ -134,16 +138,27 @@ impl LayoutBuilder {
                 value: kv_layout[1],
             });
         }
+        let mut body_kind = None;
+        if body_selected {
+            let body_kind_split = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(vec![Constraint::Percentage(15), Constraint::Percentage(26)])
+                .split(chunks[3]);
+            body_kind = Some(body_kind_split[0]);
+            req_data = body_kind_split[1];
+        };
         LayoutBuilder {
+            req_names: chunks[0],
             verb: chunks_h[0],
             address: chunks_h[2],
             env_selection: chunks_h[1],
-            body: chunks[4],
-            req_tabs: chunks[1],
+            body: chunks[5],
+            req_tabs: chunks[2],
             body_tabs,
             resp_status_code,
             req_data,
             new_header,
+            body_kind,
             el: EnvironmentLayout::new(base, with_new_name, with_new_kv),
         }
     }

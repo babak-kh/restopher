@@ -1,4 +1,7 @@
-use crate::environments::{self, Environment, KV};
+use crate::{
+    environments::{self, Environment, KV},
+    request::Body,
+};
 use regex::Regex;
 use reqwest::header::HeaderMap;
 use serde_json::{self, Serializer};
@@ -30,6 +33,7 @@ pub enum MainWindows {
 
 #[derive(Debug)]
 pub enum Windows {
+    ReqNames,
     Address,
     Response,
     RequestData,
@@ -99,7 +103,7 @@ pub struct App<'a> {
     pub selected_main_window: MainWindows,
     pub selected_window: Windows,
     client: reqwest::Client,
-    current_request_idx: usize,
+    pub current_request_idx: usize,
     requests: Option<Vec<Request>>,
     pub temp_header_param_idx: usize,
     pub req_tabs: ReqTabs<'a>,
@@ -170,6 +174,15 @@ impl<'a> App<'a> {
             .unwrap(),
         }
     }
+    pub fn get_req_names(&self) -> Vec<String> {
+        let mut result = Vec::new();
+        if let Some(req) = self.requests {
+            for r in req {
+                result.push(r.name);
+            };
+        };
+        result
+    }
     pub fn has_new_header(&self) -> bool {
         if let Some(x) = self.current_request() {
             match x.new_header {
@@ -230,11 +243,12 @@ impl<'a> App<'a> {
     }
     pub fn up(&mut self) {
         match self.selected_window {
-            Windows::Address => self.selected_window = Windows::Response,
+            Windows::Address => self.selected_window = Windows::ReqNames,
             Windows::Response => self.selected_window = Windows::RequestData,
             Windows::Verb => (),
             Windows::RequestData => self.selected_window = Windows::Address,
             Windows::EnvSelection => (),
+            Windows::ReqNames => self.selected_window = Windows::Response,
         };
     }
     pub fn down(&mut self) {
@@ -244,6 +258,7 @@ impl<'a> App<'a> {
             Windows::Verb => self.selected_window = Windows::RequestData,
             Windows::RequestData => self.selected_window = Windows::Response,
             Windows::EnvSelection => self.selected_window = Windows::RequestData,
+            Windows::ReqNames => self.selected_window = Windows::Address,
         };
     }
     pub fn right(&mut self) {
@@ -253,6 +268,7 @@ impl<'a> App<'a> {
             Windows::Verb => self.selected_window = Windows::EnvSelection,
             Windows::RequestData => (),
             Windows::EnvSelection => self.selected_window = Windows::Address,
+            Windows::ReqNames => (),
         };
     }
     pub fn left(&mut self) {
@@ -262,6 +278,7 @@ impl<'a> App<'a> {
             Windows::Verb => (),
             Windows::RequestData => (),
             Windows::EnvSelection => self.selected_window = Windows::Verb,
+            Windows::ReqNames => (),
         };
     }
     fn current_request_as_mut(&mut self) -> Option<&mut Request> {
@@ -415,7 +432,7 @@ impl<'a> App<'a> {
         let mut addr = String::new();
         let mut params = HashMap::new();
         let mut headers = HeaderMap::new();
-        let mut body = String::new();
+        let mut body = None;
 
         if let Some(request) = &self.requests {
             let req = &request[self.current_request_idx];
@@ -424,7 +441,7 @@ impl<'a> App<'a> {
             headers = (&self.replace_envs(req.handle_headers()))
                 .try_into()
                 .unwrap();
-            //body = req.handle_json_body().map(|_| "".to_string())?;
+            body = req.handle_json_body()?;
         }
         if let Some(requests) = &mut self.requests {
             let req = &mut requests[self.current_request_idx];
@@ -446,36 +463,28 @@ impl<'a> App<'a> {
                     return Ok("done".to_string());
                 }
                 HttpVerb::POST => {
-                    let r = self
-                        .client
-                        .post(addr)
-                        .query(&params)
-                        .headers(headers)
-                        .json(&body)
-                        .send()
-                        .await
-                        .map_err(|e| Error::ReqwestErr(e))?;
+                    let mut r = self.client.post(addr).query(&params).headers(headers);
+                    if let Some(b) = body {
+                        r = r.json(&b)
+                    };
+                    let resp = r.send().await.map_err(|e| Error::ReqwestErr(e))?;
                     req.response = Some(Response {
-                        headers: Some(response::handle_response_headers(r.headers())?),
-                        status_code: r.status().as_u16() as i32,
-                        body: Some(r.text().await.map_err(|e| Error::from_reqwest(e))?),
+                        headers: Some(response::handle_response_headers(resp.headers())?),
+                        status_code: resp.status().as_u16() as i32,
+                        body: Some(resp.text().await.map_err(|e| Error::from_reqwest(e))?),
                     });
                     return Ok("done".to_string());
                 }
                 HttpVerb::PUT => {
-                    let r = self
-                        .client
-                        .put(addr)
-                        .query(&params)
-                        .headers(headers)
-                        .json(&body)
-                        .send()
-                        .await
-                        .map_err(|e| Error::ReqwestErr(e))?;
+                    let mut r = self.client.put(addr).query(&params).headers(headers);
+                    if let Some(b) = body {
+                        r = r.json(&b)
+                    };
+                    let resp = r.send().await.map_err(|e| Error::ReqwestErr(e))?;
                     req.response = Some(Response {
-                        headers: Some(response::handle_response_headers(r.headers())?),
-                        status_code: r.status().as_u16() as i32,
-                        body: Some(r.text().await.unwrap()),
+                        headers: Some(response::handle_response_headers(resp.headers())?),
+                        status_code: resp.status().as_u16() as i32,
+                        body: Some(resp.text().await.unwrap()),
                     });
                     return Ok("done".to_string());
                 }
@@ -809,6 +818,28 @@ impl<'a> App<'a> {
     }
     pub fn deselect_env(&mut self) {
         self.current_env_idx = None;
+    }
+
+    pub fn add_to_req_body(&mut self, c: char) {
+        if let Some(req) = self.current_request_as_mut() {
+            req.add_to_req_body(c);
+        }
+    }
+    pub fn remove_from_req_body(&mut self) {
+        if let Some(req) = self.current_request_as_mut() {
+            req.remove_from_req_body();
+        }
+    }
+    pub fn req_body(&self) -> Body {
+        if let Some(req) = self.current_request() {
+            return req.body.clone();
+        };
+        Body::default()
+    }
+    pub fn change_body_kind(&mut self) {
+        if let Some(req) = &mut self.current_request_as_mut() {
+            req.body.kind = req.body.kind.change();
+        }
     }
 }
 

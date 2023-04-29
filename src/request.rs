@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::default;
 
 use reqwest::header::HeaderMap;
 
@@ -82,22 +83,45 @@ impl KV {
         return self.key.active;
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum BodyKind {
     JSON,
     TEXT,
 }
-#[derive(Debug)]
-pub struct Body{
-    kind: BodyKind,
-    payload: String,
+impl BodyKind {
+    pub fn to_string(&self) -> String {
+        match self {
+            BodyKind::JSON => "JSON".to_string(),
+            BodyKind::TEXT => "Text".to_string(),
+        }
+    }
+    pub fn change(&self) -> Self {
+        match self {
+            BodyKind::JSON => BodyKind::TEXT,
+            BodyKind::TEXT => BodyKind::JSON,
+        }
+    }
+}
+#[derive(Debug, Clone)]
+pub struct Body {
+    pub kind: BodyKind,
+    pub payload: Option<String>,
+}
+impl Body {
+    pub fn default() -> Self {
+        Body {
+            kind: BodyKind::JSON,
+            payload: None,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct Request {
+    pub name: String,
     pub headers: Option<Vec<(String, String, bool)>>,
     pub params: Option<Vec<(String, String, bool)>>,
-    pub body: Option<Body>,
+    pub body: Body,
     pub address: Address,
     pub verb: HttpVerb,
     pub response: Option<Response>,
@@ -107,9 +131,13 @@ pub struct Request {
 impl Request {
     pub fn new() -> Self {
         Request {
+            name: "baghbaghoo".to_string(),
             headers: None,
             params: None,
-            body: None,
+            body: Body {
+                kind: BodyKind::JSON,
+                payload: None,
+            },
             address: Address {
                 uri: "".to_string(),
             },
@@ -119,17 +147,16 @@ impl Request {
             new_param: None,
         }
     }
-    pub fn handle_headers(&self) -> HashMap<String,String> {
-        self
-            .headers
+    pub fn handle_headers(&self) -> HashMap<String, String> {
+        self.headers
             .clone()
             .unwrap_or(vec![("".to_string(), "".to_string(), false)])
             .iter()
             .filter(|item| item.2)
             .map(|item| (item.0.clone(), item.1.clone()))
-            .collect::<HashMap<String,String>>()
+            .collect::<HashMap<String, String>>()
     }
-    pub fn handle_params(&self) -> HashMap<String,String> {
+    pub fn handle_params(&self) -> HashMap<String, String> {
         let h = self
             .params
             .clone()
@@ -137,12 +164,33 @@ impl Request {
             .iter()
             .filter(|item| item.2)
             .map(|item| (item.0.clone(), item.1.clone()))
-            .collect::<HashMap<String,String>>();
+            .collect::<HashMap<String, String>>();
         h
     }
-    pub fn handle_json_body(&self) -> Result<serde_json::Value, crate::app::Error> {
-        serde_json::from_str(&self.body.clone().unwrap_or("".to_string()))
-            .map_err(|e| crate::app::Error::JsonErr(e))
+    pub fn handle_json_body(&self) -> Result<Option<serde_json::Value>, crate::app::Error> {
+        match &self.body.payload {
+            Some(data) => {
+                serde_json::from_str(&*data.clone()).map_err(|e| crate::app::Error::JsonErr(e))
+            },
+            None => Ok(None),
+        }
+    }
+    pub fn add_to_req_body(&mut self, c: char) {
+        match &mut self.body.payload {
+            Some(s) => s.push(c),
+            None => self.body.payload = Some(c.to_string()),
+        }
+    }
+    pub fn remove_from_req_body(&mut self) {
+        match &mut self.body.payload {
+            Some(s) => {
+                s.pop();
+                if s.len() == 0 {
+                    self.body.payload = None;
+                }
+            }
+            None => (),
+        }
     }
 }
 
