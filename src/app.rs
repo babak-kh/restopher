@@ -1,10 +1,14 @@
+use crate::environments;
+use crate::tree_states::Node;
+use crate::tree_states::StatefulTree;
 use crate::{
-    environments::{self, Environment, KV},
+    environments::{Environment, KV},
     request::Body,
 };
 use regex::Regex;
 use reqwest::header::HeaderMap;
-use serde_json::{self, Serializer};
+use serde_json::{self};
+use std::ffi::{OsStr, OsString};
 use std::{
     collections::{hash_map::RandomState, HashMap},
     fs,
@@ -13,6 +17,8 @@ use std::{
     str::{from_utf8, from_utf8_unchecked},
     string::FromUtf8Error,
 };
+use tui_tree_widget::TreeItem;
+use walkdir::WalkDir;
 
 use crate::{
     request::{self, HttpVerb, Request},
@@ -20,7 +26,7 @@ use crate::{
 };
 
 const ENV_PATH: &str = "envs";
-const REQ_PATH: &str = "requests";
+const COLLECTION_PATH: &str = "collections";
 const DATA_DIRECTORY: &str = "/home/babak/.config/restopher";
 const START_ENV_TOKEN: &str = "{{";
 const END_ENV_TOKEN: &str = "}}";
@@ -29,6 +35,7 @@ const END_ENV_TOKEN: &str = "}}";
 pub enum MainWindows {
     RequestScr,
     EnvironmentScr,
+    CollectionScr,
 }
 
 #[derive(Debug)]
@@ -114,6 +121,7 @@ pub struct App<'a> {
     pub temp_envs: Option<environments::TempEnv>,
     pub current_env_idx: Option<usize>, // index of active environments
     pub data_directory: String,
+    pub collections: Option<StatefulTree<'a>>,
     regex_replacer: regex::Regex,
 }
 
@@ -172,14 +180,25 @@ impl<'a> App<'a> {
                 regex::escape(END_ENV_TOKEN)
             ))
             .unwrap(),
+            collections: None,
         }
     }
     pub fn get_req_names(&self) -> Vec<String> {
         let mut result = Vec::new();
-        if let Some(req) = self.requests {
+        if let Some(req) = &self.requests {
             for r in req {
-                result.push(r.name);
-            };
+                result.push({
+                    if r.name == "".to_string() {
+                        let mut n = r.address.uri.clone();
+                        if n.len() >= 10 {
+                            n = n[0..9].to_string();
+                        };
+                        n
+                    } else {
+                        r.name.clone()
+                    }
+                });
+            }
         };
         result
     }
@@ -245,16 +264,16 @@ impl<'a> App<'a> {
         match self.selected_window {
             Windows::Address => self.selected_window = Windows::ReqNames,
             Windows::Response => self.selected_window = Windows::RequestData,
-            Windows::Verb => (),
+            Windows::Verb => self.selected_window = Windows::ReqNames,
             Windows::RequestData => self.selected_window = Windows::Address,
-            Windows::EnvSelection => (),
+            Windows::EnvSelection => self.selected_window = Windows::ReqNames,
             Windows::ReqNames => self.selected_window = Windows::Response,
         };
     }
     pub fn down(&mut self) {
         match self.selected_window {
             Windows::Address => self.selected_window = Windows::RequestData,
-            Windows::Response => self.selected_window = Windows::Address,
+            Windows::Response => self.selected_window = Windows::ReqNames,
             Windows::Verb => self.selected_window = Windows::RequestData,
             Windows::RequestData => self.selected_window = Windows::Response,
             Windows::EnvSelection => self.selected_window = Windows::RequestData,
@@ -799,7 +818,6 @@ impl<'a> App<'a> {
             }
         }
     }
-
     pub fn pre_env(&mut self) {
         if self.all_envs.len() > 0 {
             match self.current_env_idx {
@@ -819,7 +837,6 @@ impl<'a> App<'a> {
     pub fn deselect_env(&mut self) {
         self.current_env_idx = None;
     }
-
     pub fn add_to_req_body(&mut self, c: char) {
         if let Some(req) = self.current_request_as_mut() {
             req.add_to_req_body(c);
@@ -841,8 +858,68 @@ impl<'a> App<'a> {
             req.body.kind = req.body.kind.change();
         }
     }
+    pub fn next_req(&mut self) {
+        self.current_request_idx += 1;
+        if let Some(req) = &self.requests {
+            if self.current_request_idx >= req.len() {
+                self.current_request_idx = 0;
+            }
+        }
+    }
+    pub fn pre_req(&mut self) {
+        if let Some(req) = &self.requests {
+            if self.current_request_idx == 0 {
+                self.current_request_idx = req.len() - 1;
+                return;
+            };
+            self.current_request_idx -= 1;
+        }
+    }
+    pub fn new_request(&mut self) {
+        if let Some(req) = &mut self.requests {
+            req.push(request::Request::new());
+            self.current_request_idx = req.len() - 1;
+        };
+    }
+    pub fn save_current_req(&mut self) {
+        self.selected_main_window = MainWindows::CollectionScr;
+        self.set_collections();
+    }
+    pub fn set_collections(&mut self) {
+        let cols = self.create_tree(
+            Node::new(
+                format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH),
+                COLLECTION_PATH.to_string(),
+            ),
+            0,
+        );
+        self.collections = Some(StatefulTree::with_items(vec![cols.unwrap()]));
+    }
+    pub fn close_collections(&mut self) {
+        self.selected_main_window = MainWindows::RequestScr;
+        self.collections = None;
+    }
+    fn create_tree(&mut self, node: Node, mut depth: usize) -> Option<TreeItem<'static>> {
+        let mut result = TreeItem::new_leaf(node.clone());
+        if depth > 10 || !fs::metadata(node.path.clone()).unwrap().is_dir() {
+            if !node.name.ends_with(".rph") {
+                return None;
+            };
+            return Some(result);
+        }
+        for entry in fs::read_dir(node.path.clone()).unwrap() {
+            let ent = entry.unwrap();
+            let f_name = ent.file_name().to_str().unwrap().to_string().clone();
+            let f_path = ent.path().to_string_lossy().to_string();
+            let new_path = Node::new(f_path, f_name);
+            depth += 1;
+            if let Some(r) = self.create_tree(new_path, depth) {
+                result.add_child(r);
+            }
+        }
+        Some(result)
+    }
 }
-
 trait EnvReplacer {
     fn replace_env(self, pattern: &Regex, replace_kvs: &HashMap<String, String>) -> Self
     where

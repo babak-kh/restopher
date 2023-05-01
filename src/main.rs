@@ -4,10 +4,12 @@ mod environments;
 mod layout;
 mod request;
 mod response;
+mod tree_states;
 use components::{default_block, to_selected};
-use std::io;
+use std::{env, io};
 use tokio;
 use tui_textarea::TextArea;
+use tui_tree_widget::{Tree, TreeItem, TreeState};
 
 use app::{App, Windows};
 use crossterm::{
@@ -22,7 +24,6 @@ use tui::{
     text::{Span, Spans},
     widgets::{
         Block, Borders, Cell, Clear, List, ListItem, ListState, Paragraph, Row, Table, TableState,
-        Tabs,
     },
     Frame, Terminal,
 };
@@ -30,6 +31,7 @@ use tui::{
 #[tokio::main]
 async fn main() -> Result<(), io::Error> {
     //    setup_terminal()?;
+    env::set_var("RUST_BACKTRACE", "1");
     let mut stdout = io::stdout();
     enable_raw_mode()?;
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -94,6 +96,10 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                             event::KeyCode::Char('e') => {
                                 app.selected_main_window = app::MainWindows::EnvironmentScr;
                                 app.initiate_temp_envs();
+                                continue;
+                            }
+                            event::KeyCode::Char('s') => {
+                                app.save_current_req();
                                 continue;
                             }
                             event::KeyCode::Char('a') => {
@@ -230,6 +236,15 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                             event::KeyCode::Up => app.next_env(),
                             event::KeyCode::Down => app.pre_env(),
                             event::KeyCode::Esc => app.deselect_env(),
+                            _ => (),
+                        },
+                        Windows::ReqNames => match key.modifiers {
+                            event::KeyModifiers::CONTROL => match key.code {
+                                event::KeyCode::Right => app.next_req(),
+                                event::KeyCode::Left => app.pre_req(),
+                                event::KeyCode::Char('n') => app.new_request(),
+                                _ => (),
+                            },
                             _ => (),
                         },
                     };
@@ -394,6 +409,24 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                         _ => (),
                     }
                 }
+                app::MainWindows::CollectionScr => {
+                    match key.code {
+                        event::KeyCode::Esc => app.close_collections(),
+                        _ => (),
+                    };
+                    if let Some(tree) = &mut app.collections {
+                        match key.code {
+                            event::KeyCode::Char('\n' | ' ') => tree.toggle(),
+                            event::KeyCode::Left => tree.left(),
+                            event::KeyCode::Right => tree.right(),
+                            event::KeyCode::Down => tree.down(),
+                            event::KeyCode::Up => tree.up(),
+                            event::KeyCode::Home => tree.first(),
+                            event::KeyCode::End => tree.last(),
+                            _ => (),
+                        };
+                    };
+                }
             };
             match key.code {
                 event::KeyCode::Esc => {
@@ -432,6 +465,11 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
                 Span::styled(rest, Style::default().fg(Color::White)),
             ])
         })
+        .collect();
+    let req_titles_temp = app.get_req_names().clone();
+    let req_titles: Vec<Spans> = req_titles_temp
+        .iter()
+        .map(|t| Spans::from(vec![Span::styled(t, Style::default().fg(Color::White))]))
         .collect();
 
     // component declarations
@@ -477,8 +515,13 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             let data = data.block(address);
             let verb = verb_str.block(verb);
             let env_block = env_text.block(env_block);
-            let req_names_tabs = components::tabs(app.get_req_names(), "Requests", app.current_request_idx);
-            handle_response_data(app, f, bod:, &l);
+            f.render_widget(
+                components::tabs(req_titles, "Requests", app.current_request_idx)
+                    .block(req_names)
+                    .highlight_style(Style::default().bg(Color::Cyan)),
+                l.req_names,
+            );
+            handle_response_data(app, f, body, &l);
             handle_request_data(app, f, request_data, &l);
             f.render_widget(verb, l.verb);
             f.render_widget(data, l.address);
@@ -490,6 +533,10 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             let verb = verb_str.block(verb);
             let env_block = env_text.block(env_block);
             handle_request_data(app, f, request_data, &l);
+            f.render_widget(
+                components::tabs(req_titles, "Requests", app.current_request_idx).block(req_names),
+                l.req_names,
+            );
             f.render_widget(verb, l.verb);
             f.render_widget(data, l.address);
             f.render_widget(env_block, l.env_selection);
@@ -508,6 +555,10 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             handle_request_data(app, f, request_data, &l);
             f.render_widget(verb, l.verb);
             f.render_widget(data, l.address);
+            f.render_widget(
+                components::tabs(req_titles, "Requests", app.current_request_idx).block(req_names),
+                l.req_names,
+            );
             f.render_widget(env_block, l.env_selection);
             handle_response_data(app, f, body, &l);
         }
@@ -516,6 +567,10 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             let verb = verb_str.block(verb);
             let env_block = env_text.block(env_block);
             f.render_widget(env_block, l.env_selection);
+            f.render_widget(
+                components::tabs(req_titles, "Requests", app.current_request_idx).block(req_names),
+                l.req_names,
+            );
             handle_request_data(app, f, to_selected(request_data), &l);
             handle_response_data(app, f, body, &l);
             f.render_widget(verb, l.verb);
@@ -526,15 +581,34 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
             let verb = verb_str.block(verb);
             let env_block = env_text.block(to_selected(env_block));
             f.render_widget(env_block, l.env_selection);
+            f.render_widget(
+                components::tabs(req_titles, "Requests", app.current_request_idx).block(req_names),
+                l.req_names,
+            );
             handle_request_data(app, f, request_data, &l);
             handle_response_data(app, f, body, &l);
             f.render_widget(verb, l.verb);
             f.render_widget(data, l.address);
         }
-        Windows::ReqNames => todo!(),
+        Windows::ReqNames => {
+            let data = data.block(address);
+            let verb = verb_str.block(verb);
+            let env_block = env_text.block(env_block);
+            f.render_widget(env_block, l.env_selection);
+            f.render_widget(
+                components::tabs(req_titles, "Requests", app.current_request_idx)
+                    .block(to_selected(req_names)),
+                l.req_names,
+            );
+            handle_request_data(app, f, request_data, &l);
+            handle_response_data(app, f, body, &l);
+            f.render_widget(verb, l.verb);
+            f.render_widget(data, l.address);
+        }
     }
     match app.selected_main_window {
         app::MainWindows::EnvironmentScr => show_environments(f, &app, &l),
+        app::MainWindows::CollectionScr => show_collections(f, &app, &l),
         _ => (),
     }
     if app.error_pop_up.0 {
@@ -847,4 +921,21 @@ fn show_environments<B: Backend>(f: &mut Frame<B>, app: &App, l: &layout::Layout
             }
         }
     }
+}
+
+fn show_collections<B: Backend>(f: &mut Frame<B>, app: &App, l: &layout::LayoutBuilder) {
+    let environment_names = components::default_block("Collections");
+    f.render_widget(Clear, l.cl.all);
+    f.render_widget(default_block("Requests"), l.cl.payload);
+    if let Some(cols) = &app.collections {
+        let t = Tree::new(cols.items.clone())
+            .block(environment_names)
+            .highlight_style(
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::LightGreen)
+                    .add_modifier(Modifier::BOLD),
+            );
+        f.render_stateful_widget(t, l.cl.names, &mut cols.state.clone())
+    };
 }

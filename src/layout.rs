@@ -14,6 +14,35 @@ impl Default for KV {
         }
     }
 }
+pub struct CollectionsLayout {
+    pub all: Rect,
+    pub names: Rect,
+    pub payload: Rect,
+}
+impl CollectionsLayout {
+    pub fn new<B: Backend>(f: &mut Frame<B>) -> Self {
+        let all = f.size().inner(&Margin {
+            vertical: 20,
+            horizontal: 20,
+        });
+
+        let mut names = Rect::default();
+        let mut kvs = Rect::default();
+
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(vec![Constraint::Percentage(40), Constraint::Percentage(60)])
+            .split(all);
+        names = chunks[0];
+        kvs = chunks[1];
+        Self {
+            all,
+            names,
+            payload: kvs,
+        }
+    }
+}
+
 pub struct LayoutBuilder {
     pub req_names: Rect,
     pub verb: Rect,
@@ -27,6 +56,7 @@ pub struct LayoutBuilder {
     pub env_selection: Rect,
     pub body_kind: Option<Rect>,
     pub el: EnvironmentLayout,
+    pub cl: CollectionsLayout,
 }
 pub struct EnvironmentLayout {
     pub all: Rect,
@@ -160,6 +190,7 @@ impl LayoutBuilder {
             new_header,
             body_kind,
             el: EnvironmentLayout::new(base, with_new_name, with_new_kv),
+            cl: CollectionsLayout::new(base),
         }
     }
 }

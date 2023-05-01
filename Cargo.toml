@@ -14,3 +14,5 @@ serde_json = "*"
 serde = {version="1.0.160", features=["derive"]}
 regex= "1"
 tui-textarea = "0.2.0"
+tui-tree-widget = "*"
+walkdir = "2.3.3"

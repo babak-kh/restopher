@@ -131,7 +131,7 @@ pub struct Request {
 impl Request {
     pub fn new() -> Self {
         Request {
-            name: "baghbaghoo".to_string(),
+            name: "".to_string(),
             headers: None,
             params: None,
             body: Body {
@@ -196,7 +196,7 @@ impl Request {
 
 #[derive(Debug)]
 pub struct Address {
-    uri: String,
+    pub uri: String,
 }
 impl Address {
     pub fn to_string(&self) -> String {
