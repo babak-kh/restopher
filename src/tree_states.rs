@@ -63,4 +63,14 @@ impl<'a> StatefulTree<'a> {
     pub fn toggle(&mut self) {
         self.state.toggle_selected();
     }
+    pub fn get_path(&self) -> String {
+        let mut first = &self.items[self.state.selected()[0]];
+        for idx in &self.state.selected()[1..] {
+            match first.child(*idx) {
+                Some(f) => first = f,
+                None => (),
+            }
+        };
+        first.path.clone()
+    }
 }

@@ -2,10 +2,11 @@ use std::collections::HashMap;
 use std::default;
 
 use reqwest::header::HeaderMap;
+use serde::{Serialize, Deserialize};
 
 use crate::response::Response;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum HttpVerb {
     GET,
     POST,
@@ -83,7 +84,7 @@ impl KV {
         return self.key.active;
     }
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BodyKind {
     JSON,
     TEXT,
@@ -102,7 +103,7 @@ impl BodyKind {
         }
     }
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Body {
     pub kind: BodyKind,
     pub payload: Option<String>,
@@ -116,7 +117,7 @@ impl Body {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Request {
     pub name: String,
     pub headers: Option<Vec<(String, String, bool)>>,
@@ -125,8 +126,15 @@ pub struct Request {
     pub address: Address,
     pub verb: HttpVerb,
     pub response: Option<Response>,
+
+    #[serde(skip)]
     pub new_header: Option<KV>,
+
+    #[serde(skip)]
     pub new_param: Option<KV>,
+
+    #[serde(skip)]
+    pub new_name: Option<String>
 }
 impl Request {
     pub fn new() -> Self {
@@ -145,6 +153,7 @@ impl Request {
             response: None,
             new_header: None,
             new_param: None,
+            new_name: None,
         }
     }
     pub fn handle_headers(&self) -> HashMap<String, String> {
@@ -171,7 +180,7 @@ impl Request {
         match &self.body.payload {
             Some(data) => {
                 serde_json::from_str(&*data.clone()).map_err(|e| crate::app::Error::JsonErr(e))
-            },
+            }
             None => Ok(None),
         }
     }
@@ -194,7 +203,7 @@ impl Request {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Address {
     pub uri: String,
 }

@@ -98,8 +98,12 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                                 app.initiate_temp_envs();
                                 continue;
                             }
+                            event::KeyCode::Char('o') => {
+                                app.open_collections();
+                                continue;
+                            }
                             event::KeyCode::Char('s') => {
-                                app.save_current_req();
+                                app.open_collections();
                                 continue;
                             }
                             event::KeyCode::Char('a') => {
@@ -262,7 +266,6 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                             app.selected_main_window = app::MainWindows::RequestScr;
                             app.clear_temp_envs()
                                 .or_else(|e| {
-                                    println!("{:?}", e);
                                     app.error_pop_up = (true, Some(e));
                                     Ok::<(), app::Error>(())
                                 })
@@ -412,6 +415,33 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                 app::MainWindows::CollectionScr => {
                     match key.code {
                         event::KeyCode::Esc => app.close_collections(),
+                        event::KeyCode::Enter => {
+                            if app.has_new_req_name || app.has_new_collection {
+                                app.insert_collection_or_name();
+                                continue;
+                            }
+                            match app.open_request_from_collection() {
+                                Ok(_) => (),
+                                Err(e) => app.error_pop_up = (true, Some(e)),
+                            };
+                        }
+                        _ => (),
+                    }
+                    match key.modifiers {
+                        event::KeyModifiers::CONTROL => match key.code {
+                            event::KeyCode::Char('s') => {
+                                if app.current_req_has_name() {
+                                    match app.save_current_req() {
+                                        Ok(_) => (),
+                                        Err(e) => app.error_pop_up = (true, Some(e)),
+                                    };
+                                } else {
+                                    app.has_new_req_name = true
+                                }
+                            }
+                            event::KeyCode::Char('n') => app.new_collection(),
+                            _ => (),
+                        },
                         _ => (),
                     };
                     if let Some(tree) = &mut app.collections {
@@ -495,6 +525,8 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
         app.has_new_env_name(),
         app.has_new_env_kv(),
         body_kind_select,
+        app.has_new_req_name(),
+        app.has_new_collection(),
     );
 
     let data = Paragraph::new(app.address().clone().unwrap_or("".to_string()))
@@ -927,6 +959,12 @@ fn show_collections<B: Backend>(f: &mut Frame<B>, app: &App, l: &layout::LayoutB
     let environment_names = components::default_block("Collections");
     f.render_widget(Clear, l.cl.all);
     f.render_widget(default_block("Requests"), l.cl.payload);
+    if app.has_new_req_name {
+        f.render_widget(default_block("Name"), l.cl.new_name.unwrap());
+    }
+    if app.has_new_collection {
+        f.render_widget(default_block("New Collection"), l.cl.new_name.unwrap());
+    }
     if let Some(cols) = &app.collections {
         let t = Tree::new(cols.items.clone())
             .block(environment_names)

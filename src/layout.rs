@@ -17,10 +17,11 @@ impl Default for KV {
 pub struct CollectionsLayout {
     pub all: Rect,
     pub names: Rect,
+    pub new_name: Option<Rect>,
     pub payload: Rect,
 }
 impl CollectionsLayout {
-    pub fn new<B: Backend>(f: &mut Frame<B>) -> Self {
+    pub fn new<B: Backend>(f: &mut Frame<B>, has_new_name: bool, has_new_collection: bool) -> Self {
         let all = f.size().inner(&Margin {
             vertical: 20,
             horizontal: 20,
@@ -28,16 +29,26 @@ impl CollectionsLayout {
 
         let mut names = Rect::default();
         let mut kvs = Rect::default();
+        let mut new_name = None;
 
         let chunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![Constraint::Percentage(40), Constraint::Percentage(60)])
             .split(all);
+        if has_new_name | has_new_collection {
+            let new_name_collection = Layout::default()
+                .constraints(vec![Constraint::Percentage(95), Constraint::Percentage(5)])
+                .direction(Direction::Vertical)
+                .split(chunks[0]);
+            names = new_name_collection[0];
+            new_name = Some(new_name_collection[1]);
+        };
         names = chunks[0];
         kvs = chunks[1];
         Self {
             all,
             names,
+            new_name,
             payload: kvs,
         }
     }
@@ -124,6 +135,8 @@ impl LayoutBuilder {
         with_new_name: bool,
         with_new_kv: bool,
         body_selected: bool,
+        with_new_collection: bool,
+        with_new_req_name: bool,
     ) -> Self {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
@@ -190,7 +203,7 @@ impl LayoutBuilder {
             new_header,
             body_kind,
             el: EnvironmentLayout::new(base, with_new_name, with_new_kv),
-            cl: CollectionsLayout::new(base),
+            cl: CollectionsLayout::new(base, with_new_req_name, with_new_collection),
         }
     }
 }

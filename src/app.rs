@@ -8,7 +8,6 @@ use crate::{
 use regex::Regex;
 use reqwest::header::HeaderMap;
 use serde_json::{self};
-use std::ffi::{OsStr, OsString};
 use std::{
     collections::{hash_map::RandomState, HashMap},
     fs,
@@ -18,7 +17,6 @@ use std::{
     string::FromUtf8Error,
 };
 use tui_tree_widget::TreeItem;
-use walkdir::WalkDir;
 
 use crate::{
     request::{self, HttpVerb, Request},
@@ -122,6 +120,8 @@ pub struct App<'a> {
     pub current_env_idx: Option<usize>, // index of active environments
     pub data_directory: String,
     pub collections: Option<StatefulTree<'a>>,
+    pub has_new_req_name: bool,
+    pub has_new_collection: bool,
     regex_replacer: regex::Regex,
 }
 
@@ -181,6 +181,8 @@ impl<'a> App<'a> {
             ))
             .unwrap(),
             collections: None,
+            has_new_collection: false,
+            has_new_req_name: false,
         }
     }
     pub fn get_req_names(&self) -> Vec<String> {
@@ -881,9 +883,35 @@ impl<'a> App<'a> {
             self.current_request_idx = req.len() - 1;
         };
     }
-    pub fn save_current_req(&mut self) {
+    pub fn save_current_req(&mut self) -> Result<(), Error> {
+        let mut name = String::new();
+        if let Some(req) = self.current_request() {
+            name = req.name.clone();
+            if let Some(cols) = &self.collections {
+                let path = cols.get_path();
+                match fs::metadata(path.clone()) {
+                    Ok(f) => {
+                        if f.is_dir() {
+                            match fs::File::create(format!("{}/{}.rph", path, "baghbaghooo")) {
+                                Ok(f) => serde_json::to_string(req).unwrap(),
+                                Err(e) => return Err(Error::FileOperationsErr(e)),
+                            };
+                        }
+                    }
+                    Err(e) => return Err(Error::FileOperationsErr(e)),
+                };
+            }
+        } else {
+            return Err(Error::NoRequestErr(1));
+        };
+        Ok(())
+    }
+    pub fn open_collections(&mut self) {
         self.selected_main_window = MainWindows::CollectionScr;
         self.set_collections();
+    }
+    pub fn new_collection(&mut self) {
+        self.has_new_collection = true
     }
     pub fn set_collections(&mut self) {
         let cols = self.create_tree(
@@ -895,12 +923,40 @@ impl<'a> App<'a> {
         );
         self.collections = Some(StatefulTree::with_items(vec![cols.unwrap()]));
     }
+    pub fn open_request_from_collection(&mut self) -> Result<(), Error> {
+        if let Some(cols) = &self.collections {
+            let path = cols.get_path();
+            match fs::metadata(path) {
+                Ok(f) => if f.is_file() {},
+                Err(e) => return Err(Error::FileOperationsErr(e)),
+            };
+        };
+        Ok(())
+    }
     pub fn close_collections(&mut self) {
         self.selected_main_window = MainWindows::RequestScr;
         self.collections = None;
     }
+    pub fn has_new_collection(&self) -> bool {
+        self.has_new_collection
+    }
+    pub fn has_new_req_name(&self) -> bool {
+        self.has_new_req_name
+    }
+    pub fn insert_collection_or_name(&mut self) -> {
+
+    }
+    pub fn current_req_has_name(&self) -> bool {
+        if let Some(req) = self.current_request() {
+            if req.name == "".to_string() {
+                return false;
+            }
+            return true;
+        }
+        false
+    }
     fn create_tree(&mut self, node: Node, mut depth: usize) -> Option<TreeItem<'static>> {
-        let mut result = TreeItem::new_leaf(node.clone());
+        let mut result = TreeItem::new_leaf(node.name.clone(), node.path.clone());
         if depth > 10 || !fs::metadata(node.path.clone()).unwrap().is_dir() {
             if !node.name.ends_with(".rph") {
                 return None;
@@ -932,9 +988,6 @@ impl EnvReplacer for String {
     fn replace_env(self, pattern: &Regex, replace_kvs: &HashMap<String, String>) -> Self {
         let mut result = self.clone();
         for (idx, matched) in pattern.captures_iter(&self).enumerate() {
-            //            if idx == 0 {
-            //                continue;
-            //            }
             match replace_kvs.get(
                 &matched[0]
                     .trim_end_matches(END_ENV_TOKEN)

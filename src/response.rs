@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
 use reqwest::header::HeaderMap;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Response {
     pub headers: Option<HashMap<String, String>>,
     pub body: Option<String>,
