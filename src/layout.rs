@@ -37,7 +37,7 @@ impl CollectionsLayout {
             .split(all);
         if has_new_name | has_new_collection {
             let new_name_collection = Layout::default()
-                .constraints(vec![Constraint::Percentage(95), Constraint::Percentage(5)])
+                .constraints(vec![Constraint::Percentage(80), Constraint::Percentage(20)])
                 .direction(Direction::Vertical)
                 .split(chunks[0]);
             names = new_name_collection[0];

@@ -414,7 +414,13 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                 }
                 app::MainWindows::CollectionScr => {
                     match key.code {
-                        event::KeyCode::Esc => app.close_collections(),
+                        event::KeyCode::Esc => {
+                            if app.has_new_req_name() || app.has_new_collection() {
+                                app.close_new_req_or_collection();
+                                continue;
+                            }
+                            app.close_collections();
+                        }
                         event::KeyCode::Enter => {
                             if app.has_new_req_name || app.has_new_collection {
                                 app.insert_collection_or_name();
@@ -424,6 +430,12 @@ async fn run_app<B: Backend>(term: &mut Terminal<B>) -> Result<(), std::io::Erro
                                 Ok(_) => (),
                                 Err(e) => app.error_pop_up = (true, Some(e)),
                             };
+                        }
+                        event::KeyCode::Char(x) => {
+                            app.add_to_collection_or_name_string(x);
+                        }
+                        event::KeyCode::Backspace => {
+                            app.remove_from_collection_or_name_string();
                         }
                         _ => (),
                     }
@@ -825,9 +837,9 @@ fn handle_response_data<B: Backend>(
             }
         }
         app::ResponseTabs::Body(_, _) => {
-            let resp =
-                Paragraph::new(app.response_body().clone()).wrap(tui::widgets::Wrap { trim: true });
-            f.render_widget(resp.block(b), r.body);
+            let mut blk = TextArea::from(app.response_body().lines());
+            blk.set_block(b);
+            f.render_widget(blk.widget(), r.body);
         }
     }
     let sc_block = components::default_block("status_code");
@@ -956,18 +968,26 @@ fn show_environments<B: Backend>(f: &mut Frame<B>, app: &App, l: &layout::Layout
 }
 
 fn show_collections<B: Backend>(f: &mut Frame<B>, app: &App, l: &layout::LayoutBuilder) {
-    let environment_names = components::default_block("Collections");
+    let collections = components::default_block("Collections");
     f.render_widget(Clear, l.cl.all);
     f.render_widget(default_block("Requests"), l.cl.payload);
-    if app.has_new_req_name {
-        f.render_widget(default_block("Name"), l.cl.new_name.unwrap());
+    if app.has_new_req_name() {
+        f.render_widget(
+            Paragraph::new(app.collection_or_name.clone())
+                .block(to_selected(default_block("Name"))),
+            l.cl.new_name.unwrap(),
+        );
     }
-    if app.has_new_collection {
-        f.render_widget(default_block("New Collection"), l.cl.new_name.unwrap());
+    if app.has_new_collection() {
+        f.render_widget(
+            Paragraph::new(app.collection_or_name.clone())
+                .block(to_selected(default_block("New Collection"))),
+            l.cl.new_name.unwrap(),
+        );
     }
     if let Some(cols) = &app.collections {
         let t = Tree::new(cols.items.clone())
-            .block(environment_names)
+            .block(collections)
             .highlight_style(
                 Style::default()
                     .fg(Color::Black)

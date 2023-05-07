@@ -17,6 +17,7 @@ use std::{
     string::FromUtf8Error,
 };
 use tui_tree_widget::TreeItem;
+use tui_tree_widget::TreeState;
 
 use crate::{
     request::{self, HttpVerb, Request},
@@ -103,7 +104,6 @@ pub struct RespTabs<'a> {
     pub selected: &'a ResponseTabs<'a>,
     pub selected_idx: usize,
 }
-
 pub struct App<'a> {
     pub selected_main_window: MainWindows,
     pub selected_window: Windows,
@@ -122,9 +122,9 @@ pub struct App<'a> {
     pub collections: Option<StatefulTree<'a>>,
     pub has_new_req_name: bool,
     pub has_new_collection: bool,
+    pub collection_or_name: String,
     regex_replacer: regex::Regex,
 }
-
 impl<'a> App<'a> {
     pub fn new() -> Self {
         let req_tabs = vec![
@@ -183,6 +183,7 @@ impl<'a> App<'a> {
             collections: None,
             has_new_collection: false,
             has_new_req_name: false,
+            collection_or_name: "".to_string(),
         }
     }
     pub fn get_req_names(&self) -> Vec<String> {
@@ -320,17 +321,6 @@ impl<'a> App<'a> {
         };
         None
     }
-    pub fn add_header(&mut self, k: String, v: String) {
-        if let Some(req) = self.current_request_as_mut() {
-            if let Some(ref mut headers) = req.headers {
-                headers.push((k, v, true));
-                return;
-            }
-            let mut h: Vec<(String, String, bool)> = Vec::new();
-            h.push((k, v, true));
-            req.headers = Some(h);
-        }
-    }
     pub fn add_header_key(&mut self) {
         if let Some(req) = self.current_request_as_mut() {
             if let Some(ref mut headers) = req.new_header {
@@ -423,8 +413,33 @@ impl<'a> App<'a> {
     }
     pub fn response_body(&self) -> String {
         if let Some(r) = self.current_request() {
-            if let Some(ref res) = r.response {
-                return res.body.clone().unwrap_or("".to_string());
+            if let Some(resp) = &r.response {
+                if let Some(body) = &resp.body {
+                    let mut ct: Option<(&String, &String)> = None;
+                    if let Some(ref res) = r.response {
+                        if let Some(headers) = &res.headers {
+                            ct = headers
+                                .iter()
+                                .filter(|item| item.0 == "content-type")
+                                .last();
+                        };
+                        match ct {
+                            Some(content_type) => {
+                                if content_type.1.contains("application/json") {
+                                    return serde_json::to_string_pretty(
+                                        &serde_json::from_str::<serde_json::Value>(&body.clone())
+                                            .unwrap(),
+                                    )
+                                    .unwrap()
+                                    .to_string()
+                                } else {
+                                    return body.clone()
+                                }
+                            }
+                            None => return body.clone()
+                        };
+                    };
+                };
             };
         }
         "".to_string()
@@ -439,13 +454,13 @@ impl<'a> App<'a> {
     }
     pub fn headers(&self) -> Option<Vec<(String, String, bool)>> {
         if let Some(req) = self.current_request() {
-            return req.headers.clone().or(None);
+            return req.headers.clone();
         }
         None
     }
     pub fn params(&self) -> Option<Vec<(String, String, bool)>> {
         if let Some(req) = self.current_request() {
-            return req.params.clone().or(None);
+            return req.params.clone();
         }
         None
     }
@@ -889,11 +904,18 @@ impl<'a> App<'a> {
             name = req.name.clone();
             if let Some(cols) = &self.collections {
                 let path = cols.get_path();
+                if path == "".to_string() {
+                    return Err(Error::NoRequestErr(3));
+                }
                 match fs::metadata(path.clone()) {
                     Ok(f) => {
                         if f.is_dir() {
-                            match fs::File::create(format!("{}/{}.rph", path, "baghbaghooo")) {
-                                Ok(f) => serde_json::to_string(req).unwrap(),
+                            match fs::File::create(format!("{}/{}.rph", path, name)) {
+                                Ok(mut f) => {
+                                    let to_write = serde_json::to_vec(req).unwrap();
+                                    f.write(&to_write).unwrap();
+                                    self.reload_collections();
+                                }
                                 Err(e) => return Err(Error::FileOperationsErr(e)),
                             };
                         }
@@ -909,6 +931,23 @@ impl<'a> App<'a> {
     pub fn open_collections(&mut self) {
         self.selected_main_window = MainWindows::CollectionScr;
         self.set_collections();
+    }
+    pub fn reload_collections(&mut self) {
+        let mut current_state = TreeState::default();
+        if let Some(cols) = &self.collections {
+            current_state = cols.get_state()
+        }
+        let cols = self.create_tree(
+            Node::new(
+                format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH),
+                COLLECTION_PATH.to_string(),
+            ),
+            0,
+        );
+        self.collections = Some(StatefulTree::with_items_and_state(
+            vec![cols.unwrap()],
+            current_state,
+        ));
     }
     pub fn new_collection(&mut self) {
         self.has_new_collection = true
@@ -926,12 +965,49 @@ impl<'a> App<'a> {
     pub fn open_request_from_collection(&mut self) -> Result<(), Error> {
         if let Some(cols) = &self.collections {
             let path = cols.get_path();
-            match fs::metadata(path) {
-                Ok(f) => if f.is_file() {},
+            if path == "".to_string() {
+                return Err(Error::NoRequestErr(4));
+            }
+            match fs::metadata(path.clone()) {
+                Ok(f) => {
+                    if f.is_file() {
+                        self.add_to_requests_by_path(path.clone())?
+                    };
+                    if f.is_dir() {
+                        for entry in fs::read_dir(path.clone()).unwrap() {
+                            let entry = entry.unwrap();
+                            match entry.path().extension() {
+                                Some(ext) => {
+                                    if ext == "rph" {
+                                        self.add_to_requests_by_path(
+                                            entry.path().to_string_lossy().to_string(),
+                                        )?
+                                    }
+                                }
+                                None => continue,
+                            }
+                        }
+                    }
+                }
                 Err(e) => return Err(Error::FileOperationsErr(e)),
             };
         };
         Ok(())
+    }
+    fn add_to_requests_by_path(&mut self, path: String) -> Result<(), Error> {
+        match fs::File::open(path) {
+            Ok(f) => {
+                let mut reader = BufReader::new(f);
+                let mut buffer = Vec::new();
+                reader.read_to_end(&mut buffer).unwrap();
+                let new_req = serde_json::from_str(from_utf8(&buffer).unwrap()).unwrap();
+                if let Some(req) = &mut self.requests {
+                    req.push(new_req);
+                };
+                Ok(())
+            }
+            Err(e) => return Err(Error::FileOperationsErr(e)),
+        }
     }
     pub fn close_collections(&mut self) {
         self.selected_main_window = MainWindows::RequestScr;
@@ -943,8 +1019,42 @@ impl<'a> App<'a> {
     pub fn has_new_req_name(&self) -> bool {
         self.has_new_req_name
     }
-    pub fn insert_collection_or_name(&mut self) -> {
-
+    pub fn insert_collection_or_name(&mut self) {
+        if self.has_new_req_name {
+            let req_name = self.collection_or_name.clone();
+            if let Some(req) = &mut self.current_request_as_mut() {
+                req.name = req_name;
+                self.has_new_req_name = false;
+                self.collection_or_name = "".to_string();
+            }
+        }
+        if self.has_new_collection {
+            if let Some(cols) = &self.collections {
+                let path = cols.get_path();
+                if path == "".to_string() {
+                    return;
+                }
+                fs::create_dir(format!("{}/{}", path, self.collection_or_name.clone())).unwrap();
+                self.has_new_collection = false;
+                self.collection_or_name = "".to_string();
+                self.reload_collections();
+            }
+        }
+    }
+    pub fn add_to_collection_or_name_string(&mut self, x: char) {
+        if self.has_new_collection || self.has_new_req_name {
+            self.collection_or_name.push(x);
+        }
+    }
+    pub fn remove_from_collection_or_name_string(&mut self) {
+        if self.has_new_collection || self.has_new_req_name {
+            self.collection_or_name.pop();
+        }
+    }
+    pub fn close_new_req_or_collection(&mut self) {
+        self.has_new_req_name = false;
+        self.has_new_collection = false;
+        self.collection_or_name = "".to_string();
     }
     pub fn current_req_has_name(&self) -> bool {
         if let Some(req) = self.current_request() {

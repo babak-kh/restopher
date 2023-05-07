@@ -42,6 +42,15 @@ impl<'a> StatefulTree<'a> {
             items,
         }
     }
+    pub fn with_items_and_state(items: Vec<TreeItem<'a>>, state: TreeState) -> Self {
+        Self {
+            state,
+            items,
+        }
+    }
+    pub fn get_state(&self) -> TreeState {
+        self.state.clone()
+    }
     pub fn first(&mut self) {
         self.state.select_first();
     }
@@ -64,13 +73,16 @@ impl<'a> StatefulTree<'a> {
         self.state.toggle_selected();
     }
     pub fn get_path(&self) -> String {
+        if self.state.selected().len() == 0 {
+            return "".to_string();
+        }
         let mut first = &self.items[self.state.selected()[0]];
         for idx in &self.state.selected()[1..] {
             match first.child(*idx) {
                 Some(f) => first = f,
                 None => (),
             }
-        };
+        }
         first.path.clone()
     }
 }
