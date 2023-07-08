@@ -4,12 +4,11 @@ mod environments;
 mod layout;
 mod request;
 mod response;
-mod tree_states;
 use components::{default_block, to_selected};
 use std::{env, io};
 use tokio;
+use tree::{Tree, TreeItem, TreeState};
 use tui_textarea::TextArea;
-use tui_tree_widget::{Tree, TreeItem, TreeState};
 
 use app::{App, Windows};
 use crossterm::{

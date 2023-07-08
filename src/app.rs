@@ -1,6 +1,4 @@
 use crate::environments;
-use crate::tree_states::Node;
-use crate::tree_states::StatefulTree;
 use crate::{
     environments::{Environment, KV},
     request::Body,
@@ -16,8 +14,10 @@ use std::{
     str::{from_utf8, from_utf8_unchecked},
     string::FromUtf8Error,
 };
-use tui_tree_widget::TreeItem;
-use tui_tree_widget::TreeState;
+use tree::stateful_tree::StatefulTree;
+use tree::Node;
+use tree::TreeItem;
+use tree::TreeState;
 
 use crate::{
     request::{self, HttpVerb, Request},
@@ -119,7 +119,7 @@ pub struct App<'a> {
     pub temp_envs: Option<environments::TempEnv>,
     pub current_env_idx: Option<usize>, // index of active environments
     pub data_directory: String,
-    pub collections: Option<StatefulTree<'a>>,
+    pub collections: Option<StatefulTree>,
     pub has_new_req_name: bool,
     pub has_new_collection: bool,
     pub collection_or_name: String,
@@ -431,12 +431,12 @@ impl<'a> App<'a> {
                                             .unwrap(),
                                     )
                                     .unwrap()
-                                    .to_string()
+                                    .to_string();
                                 } else {
-                                    return body.clone()
+                                    return body.clone();
                                 }
                             }
-                            None => return body.clone()
+                            None => return body.clone(),
                         };
                     };
                 };
@@ -903,10 +903,7 @@ impl<'a> App<'a> {
         if let Some(req) = self.current_request() {
             name = req.name.clone();
             if let Some(cols) = &self.collections {
-                let path = cols.get_path();
-                if path == "".to_string() {
-                    return Err(Error::NoRequestErr(3));
-                }
+                let path: String = cols.get_node().ok_or::<Error>(Error::NoRequestErr(3))?.path;
                 match fs::metadata(path.clone()) {
                     Ok(f) => {
                         if f.is_dir() {
@@ -935,7 +932,7 @@ impl<'a> App<'a> {
     pub fn reload_collections(&mut self) {
         let mut current_state = TreeState::default();
         if let Some(cols) = &self.collections {
-            current_state = cols.get_state()
+            current_state = cols.get_state().clone()
         }
         let cols = self.create_tree(
             Node::new(
@@ -964,7 +961,7 @@ impl<'a> App<'a> {
     }
     pub fn open_request_from_collection(&mut self) -> Result<(), Error> {
         if let Some(cols) = &self.collections {
-            let path = cols.get_path();
+            let path = cols.get_node().ok_or::<Error>(Error::NoRequestErr(3))?.path;
             if path == "".to_string() {
                 return Err(Error::NoRequestErr(4));
             }
@@ -1030,7 +1027,7 @@ impl<'a> App<'a> {
         }
         if self.has_new_collection {
             if let Some(cols) = &self.collections {
-                let path = cols.get_path();
+                let path = cols.get_node().unwrap().path;
                 if path == "".to_string() {
                     return;
                 }
@@ -1065,10 +1062,10 @@ impl<'a> App<'a> {
         }
         false
     }
-    fn create_tree(&mut self, node: Node, mut depth: usize) -> Option<TreeItem<'static>> {
-        let mut result = TreeItem::new_leaf(node.name.clone(), node.path.clone());
+    fn create_tree(&mut self, node: Node, mut depth: usize) -> Option<TreeItem> {
+        let mut result = TreeItem::new_leaf(node.clone());
         if depth > 10 || !fs::metadata(node.path.clone()).unwrap().is_dir() {
-            if !node.name.ends_with(".rph") {
+            if !node.to_show.ends_with(".rph") {
                 return None;
             };
             return Some(result);
