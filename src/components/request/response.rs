@@ -9,15 +9,21 @@ pub struct Response {
     pub body: Option<String>,
     pub status_code: i32,
 }
+
 impl Response {
     pub fn headers(&self) -> Option<HashMap<String, String>> {
         self.headers.clone()
     }
+    pub fn new() -> Self {
+        Response {
+            headers: None,
+            body: None,
+            status_code: 0,
+        }
+    }
 }
 
-pub fn handle_response_headers(
-    r: &HeaderMap,
-) -> Result<HashMap<String, String>, crate::app::Error> {
+pub fn handle_response_headers(r: &HeaderMap) -> Result<HashMap<String,String>, crate::app::Error> {
     let mut response_headers = HashMap::new();
     for (key, value) in r.iter() {
         response_headers.insert(

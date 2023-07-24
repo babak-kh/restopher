@@ -1,28 +1,27 @@
+use crate::components::{default_block, tabs, RequestController};
 use crate::environments;
+use crate::keys::keys::{is_quit, transform};
+use crate::utils::app_state::{Section, State, REQUESTS};
 use crate::{
+    components::{HttpVerb, ReqBundle, ReqTabs, RequestOptions, RespTabs, ResponseOptions},
     environments::{Environment, KV},
-    request::Body,
 };
+use crossterm::event::{self, Event, KeyEvent};
 use regex::Regex;
 use reqwest::header::HeaderMap;
+use reqwest::{Response, ResponseBuilderExt};
 use serde_json::{self};
 use std::{
     collections::{hash_map::RandomState, HashMap},
     fs,
-    hash::Hash,
-    io::{self, BufRead, BufReader, Read, Write},
-    str::{from_utf8, from_utf8_unchecked},
-    string::FromUtf8Error,
+    io::{BufRead, BufReader, Read, Write},
+    str::from_utf8,
 };
-use tree::stateful_tree::StatefulTree;
-use tree::Node;
-use tree::TreeItem;
-use tree::TreeState;
-
-use crate::{
-    request::{self, HttpVerb, Request},
-    response::{self, Response},
-};
+use tree::{stateful_tree::StatefulTree, Node, TreeItem, TreeState};
+use tui::backend::Backend;
+use tui::layout::{Constraint, Direction, Layout};
+use tui::text::Spans;
+use tui::{Frame, Terminal};
 
 const ENV_PATH: &str = "envs";
 const COLLECTION_PATH: &str = "collections";
@@ -31,57 +30,12 @@ const START_ENV_TOKEN: &str = "{{";
 const END_ENV_TOKEN: &str = "}}";
 
 #[derive(Debug)]
-pub enum MainWindows {
-    RequestScr,
-    EnvironmentScr,
-    CollectionScr,
-}
-
-#[derive(Debug)]
-pub enum Windows {
-    ReqNames,
-    Address,
-    Response,
-    RequestData,
-    Verb,
-    EnvSelection,
-}
-#[derive(Debug)]
-pub enum ResponseTabs<'a> {
-    Body(usize, &'a str),
-    Headers(usize, &'a str),
-}
-impl<'a> ResponseTabs<'a> {
-    pub fn split_at(&self) -> (&str, &str) {
-        match self {
-            ResponseTabs::Headers(_, name) | ResponseTabs::Body(_, name) => name.split_at(1),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum RequestTabs<'a> {
-    Headers(usize, &'a str),
-    Params(usize, &'a str),
-    Body(usize, &'a str),
-}
-impl<'a> RequestTabs<'a> {
-    pub fn split_at(&self) -> (&str, &str) {
-        match self {
-            RequestTabs::Headers(_, name)
-            | RequestTabs::Params(_, name)
-            | RequestTabs::Body(_, name) => name.split_at(1),
-        }
-    }
-}
-
-#[derive(Debug)]
 pub enum Error {
     NoRequestErr(usize),
     ReqwestErr(reqwest::Error),
     JsonErr(serde_json::Error),
     HeaderIsNotString,
-    FileOperationsErr(io::Error),
+    FileOperationsErr(std::io::Error),
     ParamIsNotString,
 }
 impl Error {
@@ -92,50 +46,31 @@ impl Error {
         Error::JsonErr(e)
     }
 }
-#[derive(Debug)]
-pub struct ReqTabs<'a> {
-    pub req_tabs: Vec<&'a RequestTabs<'a>>,
-    pub selected: &'a RequestTabs<'a>,
-    pub selected_idx: usize,
-}
-#[derive(Debug)]
-pub struct RespTabs<'a> {
-    pub resp_tabs: Vec<&'a ResponseTabs<'a>>,
-    pub selected: &'a ResponseTabs<'a>,
-    pub selected_idx: usize,
-}
 pub struct App<'a> {
-    pub selected_main_window: MainWindows,
-    pub selected_window: Windows,
+    state: State,
     client: reqwest::Client,
-    pub current_request_idx: usize,
-    requests: Option<Vec<Request>>,
-    pub temp_header_param_idx: usize,
-    pub req_tabs: ReqTabs<'a>,
-    pub resp_tabs: RespTabs<'a>,
-    pub error_pop_up: (bool, Option<Error>),
-    pub show_environments: bool,
-    pub all_envs: Vec<Environment>,
-    pub temp_envs: Option<environments::TempEnv>,
-    pub current_env_idx: Option<usize>, // index of active environments
-    pub data_directory: String,
-    pub collections: Option<StatefulTree>,
-    pub has_new_req_name: bool,
-    pub has_new_collection: bool,
-    pub collection_or_name: String,
+    req_controller: RequestController,
+
+    current_request_idx: usize,
+    requests: Vec<ReqBundle>,
+    temp_header_param_idx: usize,
+    req_tabs: ReqTabs<'a>,
+    resp_tabs: RespTabs<'a>,
+    error_pop_up: (bool, Option<Error>),
+    show_environments: bool,
+    all_envs: Vec<Environment>,
+    temp_envs: Option<environments::TempEnv>,
+    current_env_idx: Option<usize>, // index of active environments
+    data_directory: String,
+    collections: Option<StatefulTree>,
+    has_new_req_name: bool,
+    has_new_collection: bool,
+    collection_or_name: String,
     regex_replacer: regex::Regex,
 }
 impl<'a> App<'a> {
     pub fn new() -> Self {
-        let req_tabs = vec![
-            &RequestTabs::Headers(0, "Headers"),
-            &RequestTabs::Body(1, "Body"),
-            &RequestTabs::Params(2, "Params"),
-        ];
-        let resp_tabs = vec![
-            &ResponseTabs::Headers(0, "Headers"),
-            &ResponseTabs::Body(1, "Body"),
-        ];
+        let rc = RequestController::new();
         let all_envs = match fs::File::open(format!("{}/{}", DATA_DIRECTORY, ENV_PATH)) {
             Ok(f) => {
                 let mut reader = BufReader::new(f);
@@ -145,33 +80,26 @@ impl<'a> App<'a> {
             }
             Err(e) => {
                 match e.kind() {
-                    io::ErrorKind::NotFound => (),
+                    std::io::ErrorKind::NotFound => (),
                     _ => (),
                 };
                 Vec::new()
             }
         };
+        let mut requests = vec![ReqBundle::new()];
         App {
-            requests: Some(vec![Request::new()]),
+            state: vec![REQUESTS],
             client: reqwest::Client::new(),
+            req_controller: rc,
+            requests,
             current_request_idx: 0,
-            selected_window: Windows::Address,
-            req_tabs: ReqTabs {
-                selected: req_tabs[0],
-                req_tabs,
-                selected_idx: 0,
-            },
-            resp_tabs: RespTabs {
-                selected: resp_tabs[0],
-                resp_tabs,
-                selected_idx: 0,
-            },
+            req_tabs: ReqTabs::new(),
+            resp_tabs: RespTabs::new(),
             error_pop_up: (false, None),
             temp_header_param_idx: 0,
             current_env_idx: None,
             show_environments: false,
             all_envs,
-            selected_main_window: MainWindows::RequestScr,
             temp_envs: None,
             data_directory: DATA_DIRECTORY.to_string(),
             regex_replacer: Regex::new(&format!(
@@ -186,539 +114,219 @@ impl<'a> App<'a> {
             collection_or_name: "".to_string(),
         }
     }
+    pub async fn run<B: Backend>(&mut self, term: &mut Terminal<B>) -> () {
+        loop {
+            term.draw(|f| self.ui(f)).unwrap();
+            if let Event::Key(key) = event::read().unwrap() {
+                let even = transform(key, &mut self.state);
+                if is_quit(&even) {
+                    return;
+                }
+                if *even.state.last().unwrap() == REQUESTS {
+                    self.req_controller
+                        .handle(even, &mut self.requests[self.current_request_idx]);
+                }
+            }
+        }
+    }
+    fn ui<B: Backend>(&self, f: &mut Frame<B>) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![
+                Constraint::Percentage(6), // req names
+                Constraint::Percentage(94),
+            ])
+            .split(f.size());
+        let t = tabs(
+            self.get_req_names()
+                .into_iter()
+                .map(|s| Spans::from(s))
+                .collect(),
+            "requests",
+            0,
+        )
+        .block(default_block("requests"));
+        RequestController::render(
+            f,
+            &self.requests[self.current_request_idx],
+            chunks[1],
+            &self.state,
+        );
+        f.render_widget(t, chunks[0]);
+    }
     pub fn get_req_names(&self) -> Vec<String> {
         let mut result = Vec::new();
-        if let Some(req) = &self.requests {
-            for r in req {
-                result.push({
-                    if r.name == "".to_string() {
-                        let mut n = r.address.uri.clone();
-                        if n.len() >= 10 {
-                            n = n[0..9].to_string();
-                        };
-                        n
-                    } else {
-                        r.name.clone()
-                    }
-                });
-            }
-        };
+        for r in &self.requests {
+            result.push({ r.name() });
+        }
         result
     }
-    pub fn has_new_header(&self) -> bool {
-        if let Some(x) = self.current_request() {
-            match x.new_header {
-                Some(_) => return true,
-                None => return false,
-            }
-        }
-        return false;
-    }
-    pub fn has_new_param(&self) -> bool {
-        if let Some(x) = self.current_request() {
-            match x.new_param {
-                Some(_) => return true,
-                None => return false,
-            }
-        }
-        return false;
-    }
-    pub fn new_headers(&self) -> [String; 2] {
-        if let Some(req) = self.current_request() {
-            if let Some(h) = &req.new_header {
-                return [h.key.text.clone(), h.value.text.clone()];
-            } else {
-                return ["".to_string(), "".to_string()];
-            };
-        };
-        ["".to_string(), "".to_string()]
-    }
-    pub fn initiate_new_header(&mut self) {
-        if let Some(req) = self.current_request_as_mut() {
-            req.new_header = Some(request::KV::new());
-        }
-    }
-    pub fn remove_new_header(&mut self) {
-        if let Some(req) = self.current_request_as_mut() {
-            req.new_header = None;
-        }
-    }
-    pub fn new_param(&self) -> [String; 2] {
-        if let Some(req) = self.current_request() {
-            if let Some(h) = &req.new_param {
-                return [h.key.text.clone(), h.value.text.clone()];
-            } else {
-                return ["".to_string(), "".to_string()];
-            };
-        };
-        ["".to_string(), "".to_string()]
-    }
-    pub fn initiate_new_param(&mut self) {
-        if let Some(req) = self.current_request_as_mut() {
-            req.new_param = Some(request::KV::new());
-        }
-    }
-    pub fn remove_new_param(&mut self) {
-        if let Some(req) = self.current_request_as_mut() {
-            req.new_param = None;
-        }
-    }
-    pub fn up(&mut self) {
-        match self.selected_window {
-            Windows::Address => self.selected_window = Windows::ReqNames,
-            Windows::Response => self.selected_window = Windows::RequestData,
-            Windows::Verb => self.selected_window = Windows::ReqNames,
-            Windows::RequestData => self.selected_window = Windows::Address,
-            Windows::EnvSelection => self.selected_window = Windows::ReqNames,
-            Windows::ReqNames => self.selected_window = Windows::Response,
-        };
-    }
-    pub fn down(&mut self) {
-        match self.selected_window {
-            Windows::Address => self.selected_window = Windows::RequestData,
-            Windows::Response => self.selected_window = Windows::ReqNames,
-            Windows::Verb => self.selected_window = Windows::RequestData,
-            Windows::RequestData => self.selected_window = Windows::Response,
-            Windows::EnvSelection => self.selected_window = Windows::RequestData,
-            Windows::ReqNames => self.selected_window = Windows::Address,
-        };
-    }
-    pub fn right(&mut self) {
-        match self.selected_window {
-            Windows::Address => (),
-            Windows::Response => (),
-            Windows::Verb => self.selected_window = Windows::EnvSelection,
-            Windows::RequestData => (),
-            Windows::EnvSelection => self.selected_window = Windows::Address,
-            Windows::ReqNames => (),
-        };
-    }
-    pub fn left(&mut self) {
-        match self.selected_window {
-            Windows::Address => self.selected_window = Windows::EnvSelection,
-            Windows::Response => (),
-            Windows::Verb => (),
-            Windows::RequestData => (),
-            Windows::EnvSelection => self.selected_window = Windows::Verb,
-            Windows::ReqNames => (),
-        };
-    }
-    fn current_request_as_mut(&mut self) -> Option<&mut Request> {
-        if let Some(req) = &mut self.requests {
-            return Some(&mut req[self.current_request_idx]);
-        };
-        None
-    }
-    fn current_request(&self) -> Option<&Request> {
-        if let Some(req) = &self.requests {
-            return Some(&req[self.current_request_idx]);
-        };
-        None
-    }
-    pub fn address(&self) -> Option<String> {
-        if let Some(req) = self.current_request() {
-            return Some(req.address.to_string());
-        };
-        None
-    }
-    pub fn add_header_key(&mut self) {
-        if let Some(req) = self.current_request_as_mut() {
-            if let Some(ref mut headers) = req.new_header {
-                if headers.key.text == "".to_string() || headers.value.text == "".to_string() {
-                    return;
-                }
-                if let Some(ref mut h) = req.headers {
-                    h.push((headers.key.text.clone(), headers.value.text.clone(), true));
-                    return;
-                }
-                let mut h: Vec<(String, String, bool)> = Vec::new();
-                h.push((headers.key.text.clone(), headers.value.text.clone(), true));
-                req.headers = Some(h);
-            }
-        }
-    }
-    pub fn add_header_value(&mut self) {
-        if let Some(req) = self.current_request_as_mut() {
-            if let Some(ref mut headers) = req.new_header {
-                if headers.key.text == "".to_string() || headers.value.text == "".to_string() {
-                    return;
-                }
-                if let Some(ref mut h) = req.headers {
-                    h.push((headers.key.text.clone(), headers.value.text.clone(), true));
-                    return;
-                }
-                let mut h: Vec<(String, String, bool)> = Vec::new();
-                h.push((headers.key.text.clone(), headers.value.text.clone(), true));
-                req.headers = Some(h);
-            }
-        }
-    }
-    pub fn add_param_key(&mut self) {
-        if let Some(req) = self.current_request_as_mut() {
-            if let Some(ref mut params) = req.new_param {
-                if params.key.text == "".to_string() || params.value.text == "".to_string() {
-                    return;
-                }
-                if let Some(ref mut h) = req.params {
-                    h.push((params.key.text.clone(), params.value.text.clone(), true));
-                    return;
-                }
-                let mut h: Vec<(String, String, bool)> = Vec::new();
-                h.push((params.key.text.clone(), params.value.text.clone(), true));
-                req.params = Some(h);
-            }
-        }
-    }
-    pub fn add_param_value(&mut self) {
-        if let Some(req) = self.current_request_as_mut() {
-            if let Some(ref mut params) = req.new_param {
-                if params.key.text == "".to_string() || params.value.text == "".to_string() {
-                    return;
-                }
-                if let Some(ref mut h) = req.params {
-                    h.push((params.key.text.clone(), params.value.text.clone(), true));
-                    return;
-                }
-                let mut h: Vec<(String, String, bool)> = Vec::new();
-                h.push((params.key.text.clone(), params.value.text.clone(), true));
-                req.params = Some(h);
-            }
-        }
-    }
-    pub fn pop_address(&mut self) {
-        if let Some(ref mut r) = self.current_request_as_mut() {
-            r.address.pop();
-        }
-    }
-    pub fn add_address(&mut self, c: char) {
-        if let Some(r) = self.current_request_as_mut() {
-            r.address.add(c);
-        }
-    }
-    pub fn verb_up(&mut self) {
-        if let Some(r) = self.current_request_as_mut() {
-            r.verb = r.verb.up();
-        }
-    }
-    pub fn verb_down(&mut self) {
-        if let Some(r) = self.current_request_as_mut() {
-            r.verb = r.verb.down();
-        }
-    }
-    pub fn verb(&self) -> String {
-        if let Some(r) = self.current_request() {
-            return r.verb.to_string();
-        }
-        HttpVerb::GET.to_string()
-    }
-    pub fn response_body(&self) -> String {
-        if let Some(r) = self.current_request() {
-            if let Some(resp) = &r.response {
-                if let Some(body) = &resp.body {
-                    let mut ct: Option<(&String, &String)> = None;
-                    if let Some(ref res) = r.response {
-                        if let Some(headers) = &res.headers {
-                            ct = headers
-                                .iter()
-                                .filter(|item| item.0 == "content-type")
-                                .last();
-                        };
-                        match ct {
-                            Some(content_type) => {
-                                if content_type.1.contains("application/json") {
-                                    return serde_json::to_string_pretty(
-                                        &serde_json::from_str::<serde_json::Value>(&body.clone())
-                                            .unwrap(),
-                                    )
-                                    .unwrap()
-                                    .to_string();
-                                } else {
-                                    return body.clone();
-                                }
-                            }
-                            None => return body.clone(),
-                        };
-                    };
-                };
-            };
-        }
-        "".to_string()
-    }
-    pub fn response_status_code(&self) -> i32 {
-        if let Some(r) = self.current_request() {
-            if let Some(ref res) = r.response {
-                return res.status_code.clone();
-            };
-        }
-        0
-    }
-    pub fn headers(&self) -> Option<Vec<(String, String, bool)>> {
-        if let Some(req) = self.current_request() {
-            return req.headers.clone();
-        }
-        None
-    }
-    pub fn params(&self) -> Option<Vec<(String, String, bool)>> {
-        if let Some(req) = self.current_request() {
-            return req.params.clone();
-        }
-        None
-    }
+    // pub fn up(&mut self) {
+    //     match self.selected_window {
+    //         Windows::Address => self.selected_window = Windows::ReqNames,
+    //         Windows::Response => self.selected_window = Windows::RequestData,
+    //         Windows::Verb => self.selected_window = Windows::ReqNames,
+    //         Windows::RequestData => self.selected_window = Windows::Address,
+    //         Windows::EnvSelection => self.selected_window = Windows::ReqNames,
+    //         Windows::ReqNames => self.selected_window = Windows::Response,
+    //     };
+    // }
+    // pub fn down(&mut self) {
+    //     match self.selected_window {
+    //         Windows::Address => self.selected_window = Windows::RequestData,
+    //         Windows::Response => self.selected_window = Windows::ReqNames,
+    //         Windows::Verb => self.selected_window = Windows::RequestData,
+    //         Windows::RequestData => self.selected_window = Windows::Response,
+    //         Windows::EnvSelection => self.selected_window = Windows::RequestData,
+    //         Windows::ReqNames => self.selected_window = Windows::Address,
+    //     };
+    // }
+    // pub fn right(&mut self) {
+    //     match self.selected_window {
+    //         Windows::Address => (),
+    //         Windows::Response => (),
+    //         Windows::Verb => self.selected_window = Windows::EnvSelection,
+    //         Windows::RequestData => (),
+    //         Windows::EnvSelection => self.selected_window = Windows::Address,
+    //         Windows::ReqNames => (),
+    //     };
+    // }
+    // pub fn left(&mut self) {
+    //     match self.selected_window {
+    //         Windows::Address => self.selected_window = Windows::EnvSelection,
+    //         Windows::Response => (),
+    //         Windows::Verb => (),
+    //         Windows::RequestData => (),
+    //         Windows::EnvSelection => self.selected_window = Windows::Verb,
+    //         Windows::ReqNames => (),
+    //     };
+    // }
     pub async fn call_request(&mut self) -> Result<String, Error> {
         let mut addr = String::new();
         let mut params = HashMap::new();
         let mut headers = HeaderMap::new();
         let mut body = None;
-
-        if let Some(request) = &self.requests {
-            let req = &request[self.current_request_idx];
-            params = self.replace_envs(req.handle_params());
-            addr = self.replace_envs(req.address.to_string());
-            headers = (&self.replace_envs(req.handle_headers()))
-                .try_into()
-                .unwrap();
-            body = req.handle_json_body()?;
-        }
-        if let Some(requests) = &mut self.requests {
-            let req = &mut requests[self.current_request_idx];
-            match req.verb {
-                HttpVerb::GET => {
-                    let r = self
-                        .client
-                        .get(addr)
-                        .query(&params)
-                        .headers(headers)
-                        .send()
-                        .await
-                        .map_err(|e| Error::ReqwestErr(e))?;
-                    req.response = Some(Response {
-                        headers: Some(response::handle_response_headers(r.headers())?),
-                        status_code: r.status().as_u16() as i32,
-                        body: Some(r.text().await.map_err(|e| Error::ReqwestErr(e))?),
-                    });
-                    return Ok("done".to_string());
-                }
-                HttpVerb::POST => {
-                    let mut r = self.client.post(addr).query(&params).headers(headers);
-                    if let Some(b) = body {
-                        r = r.json(&b)
-                    };
-                    let resp = r.send().await.map_err(|e| Error::ReqwestErr(e))?;
-                    req.response = Some(Response {
-                        headers: Some(response::handle_response_headers(resp.headers())?),
-                        status_code: resp.status().as_u16() as i32,
-                        body: Some(resp.text().await.map_err(|e| Error::from_reqwest(e))?),
-                    });
-                    return Ok("done".to_string());
-                }
-                HttpVerb::PUT => {
-                    let mut r = self.client.put(addr).query(&params).headers(headers);
-                    if let Some(b) = body {
-                        r = r.json(&b)
-                    };
-                    let resp = r.send().await.map_err(|e| Error::ReqwestErr(e))?;
-                    req.response = Some(Response {
-                        headers: Some(response::handle_response_headers(resp.headers())?),
-                        status_code: resp.status().as_u16() as i32,
-                        body: Some(resp.text().await.unwrap()),
-                    });
-                    return Ok("done".to_string());
-                }
-                HttpVerb::DELETE => {
-                    let r = self
-                        .client
-                        .get(addr)
-                        .query(&params)
-                        .headers(headers)
-                        .send()
-                        .await
-                        .map_err(|e| Error::ReqwestErr(e))?;
-                    req.response = Some(Response {
-                        headers: Some(response::handle_response_headers(r.headers())?),
-                        status_code: r.status().as_u16() as i32,
-                        body: Some(r.text().await.unwrap()),
-                    });
-                    return Ok("done".to_string());
-                }
+        let current_request = &self.requests[self.current_request_idx];
+        params = self.replace_envs(current_request.handle_params());
+        addr = self.replace_envs(current_request.address().to_string());
+        headers = (&self.replace_envs(current_request.handle_headers()))
+            .try_into()
+            .unwrap();
+        body = current_request.handle_json_body()?;
+        let resp: Response;
+        match current_request.verb() {
+            HttpVerb::GET => {
+                resp = self
+                    .client
+                    .get(addr)
+                    .query(&params)
+                    .headers(headers)
+                    .send()
+                    .await
+                    .map_err(|e| Error::ReqwestErr(e))?;
+            }
+            HttpVerb::POST => {
+                let mut r = self.client.post(addr).query(&params).headers(headers);
+                if let Some(b) = body {
+                    r = r.json(&b)
+                };
+                resp = r.send().await.map_err(|e| Error::ReqwestErr(e))?;
+            }
+            HttpVerb::PUT => {
+                let mut r = self.client.put(addr).query(&params).headers(headers);
+                if let Some(b) = body {
+                    r = r.json(&b)
+                };
+                resp = r.send().await.map_err(|e| Error::ReqwestErr(e))?;
+            }
+            HttpVerb::DELETE => {
+                resp = self
+                    .client
+                    .get(addr)
+                    .query(&params)
+                    .headers(headers)
+                    .send()
+                    .await
+                    .map_err(|e| Error::ReqwestErr(e))?;
             }
         }
+        let current_request = &mut self.requests[self.current_request_idx];
+        current_request.set_response_status_code(resp.status().as_u16() as i32);
+        current_request.set_response_body(resp.text().await.map_err(|e| Error::ReqwestErr(e))?);
         Err(Error::NoRequestErr(0))
     }
     pub fn change_request_tab(&mut self) {
-        let mut idx: usize;
-        match self.req_tabs.selected {
-            RequestTabs::Headers(index, _)
-            | RequestTabs::Params(index, _)
-            | RequestTabs::Body(index, _) => idx = *index,
-        }
-        idx += 1;
-        if idx == self.req_tabs.req_tabs.len() {
-            idx = 0;
-            self.req_tabs.selected = self.req_tabs.req_tabs[0]
-        }
-        self.req_tabs.selected_idx = idx;
-        self.req_tabs.selected = self.req_tabs.req_tabs[idx]
+        self.req_tabs.next()
     }
     pub fn change_response_tab(&mut self) {
-        let mut idx: usize;
-        match self.resp_tabs.selected {
-            ResponseTabs::Headers(index, _) | ResponseTabs::Body(index, _) => idx = *index,
-        }
-        idx += 1;
-        if idx == self.resp_tabs.resp_tabs.len() {
-            idx = 0;
-            self.resp_tabs.selected = self.resp_tabs.resp_tabs[0]
-        }
-        self.resp_tabs.selected_idx = idx;
-        self.resp_tabs.selected = self.resp_tabs.resp_tabs[idx]
+        self.resp_tabs.next()
     }
-    pub fn add_to_kv(&mut self, ch: char) {
-        match self.req_tabs.selected {
-            RequestTabs::Headers(_, _) => {
-                if let Some(req) = self.current_request_as_mut() {
-                    if let Some(h) = &mut req.new_header {
-                        h.add_to_active(ch);
-                    }
-                }
-            }
-            RequestTabs::Params(_, _) => {
-                if let Some(req) = self.current_request_as_mut() {
-                    if let Some(h) = &mut req.new_param {
-                        h.add_to_active(ch);
-                    }
-                }
-            }
-            _ => (),
-        }
-    }
-    pub fn remove_from_kv(&mut self) {
-        match self.req_tabs.selected {
-            RequestTabs::Headers(_, _) => {
-                if let Some(req) = self.current_request_as_mut() {
-                    if let Some(h) = &mut req.new_header {
-                        h.remove_from_active();
-                    }
-                }
-            }
-            RequestTabs::Params(_, _) => {
-                if let Some(req) = self.current_request_as_mut() {
-                    if let Some(h) = &mut req.new_param {
-                        h.remove_from_active();
-                    }
-                }
-            }
-            _ => (),
-        }
-    }
-    pub fn change_active(&mut self) {
-        match self.req_tabs.selected {
-            RequestTabs::Headers(_, _) => {
-                if let Some(req) = self.current_request_as_mut() {
-                    if let Some(h) = &mut req.new_header {
-                        h.change_active();
-                    }
-                }
-            }
-            RequestTabs::Params(_, _) => {
-                if let Some(req) = self.current_request_as_mut() {
-                    if let Some(h) = &mut req.new_param {
-                        h.change_active();
-                    }
-                }
-            }
-            _ => (),
-        }
-    }
-    pub fn is_key_active(&self) -> bool {
-        match self.req_tabs.selected {
-            RequestTabs::Headers(_, _) => {
-                if let Some(req) = self.current_request() {
-                    if let Some(h) = &req.new_header {
-                        return h.is_key_active();
-                    } else {
-                        return false;
-                    };
-                };
-            }
-            RequestTabs::Params(_, _) => {
-                if let Some(req) = self.current_request() {
-                    if let Some(h) = &req.new_param {
-                        return h.is_key_active();
-                    } else {
-                        return false;
-                    };
-                }
-            }
-            _ => (),
-        }
-        false
-    }
-    pub fn response_headers(&self) -> Option<HashMap<String, String>> {
-        if let Some(req) = self.current_request() {
-            if let Some(resp) = &req.response {
-                return resp.headers();
-            };
-            return None;
-        };
-        None
-    }
-    pub fn delete_selected_header(&mut self) {
-        let idx = self.temp_header_param_idx.clone();
-        if let Some(req) = self.current_request_as_mut() {
-            if let Some(headers) = &mut req.headers {
-                if idx <= headers.len() - 1 {
-                    headers.remove(idx);
-                }
-            }
-        }
-    }
-    pub fn delete_selected_param(&mut self) {
-        let idx = self.temp_header_param_idx.clone();
-        if let Some(req) = self.current_request_as_mut() {
-            if let Some(params) = &mut req.params {
-                if idx <= params.len() - 1 {
-                    params.remove(idx);
-                }
-            }
-        }
-    }
-    pub fn increase_temp_idx(&mut self) {
-        if let Some(req) = self.current_request() {
-            if self.temp_header_param_idx
-                <= std::cmp::max(
-                    req.headers.clone().map_or(0, |v| v.len()),
-                    req.params.clone().map_or(0, |v| v.len()),
-                )
-            {
-                self.temp_header_param_idx += 1;
-            }
-        }
-    }
-    pub fn decrease_temp_idx(&mut self) {
-        if self.temp_header_param_idx >= 1 {
-            self.temp_header_param_idx -= 1;
-        };
-    }
-    pub fn change_activity_selected_param(&mut self) {
-        let idx = self.temp_header_param_idx.clone();
-        if let Some(req) = self.current_request_as_mut() {
-            if let Some(params) = &mut req.params {
-                if idx <= params.len() - 1 {
-                    params[idx].2 = !params[idx].2;
-                }
-            }
-        }
-    }
-    pub fn change_activity_selected_header(&mut self) {
-        let idx = self.temp_header_param_idx.clone();
-        if let Some(req) = self.current_request_as_mut() {
-            if let Some(headers) = &mut req.headers {
-                if idx <= headers.len() - 1 {
-                    headers[idx].2 = !headers[idx].2;
-                }
-            }
-        }
-    }
+    //  pub fn add_to_kv(&mut self, ch: char) {
+    //      match self.req_tabs.active() {
+    //          RequestOptions::Headers(_, _) => {
+    //              self.current_request.add_to_active_header(ch);
+    //          }
+    //          RequestOptions::Params(_, _) => self.current_request.add_to_active_param(ch),
+    //          _ => (),
+    //      }
+    //  }
+    //  pub fn remove_from_kv(&mut self) {
+    //      match self.req_tabs.active() {
+    //          RequestOptions::Headers(_, _) => self.current_request.remove_from_active_header(),
+    //          RequestOptions::Params(_, _) => self.current_request.remove_from_active_param(),
+    //          _ => (),
+    //      }
+    //  }
+    //  pub fn change_active(&mut self) {
+    //      match self.req_tabs.active() {
+    //          RequestOptions::Headers(_, _) => self.current_request.change_active_header(),
+    //          RequestOptions::Params(_, _) => self.current_request.change_active_param(),
+    //          _ => (),
+    //      }
+    //  }
+    //  pub fn is_key_active(&self) -> bool {
+    //      match self.req_tabs.active() {
+    //          RequestOptions::Headers(_, _) => {
+    //              return self.current_request.is_key_active_in_header();
+    //          }
+    //          RequestOptions::Params(_, _) => {
+    //              return self.current_request.is_key_active_in_param();
+    //          }
+    //          _ => (),
+    //      }
+    //      false
+    //  }
+    //  pub fn response_headers(&self) -> Option<HashMap<String, String>> {
+    //      self.current_request.response_headers()
+    //  }
+    //  pub fn delete_selected_header(&mut self) {
+    //      self.current_request.delete_selected_header()
+    //  }
+    //  pub fn delete_selected_param(&mut self) {
+    //      self.current_request.delete_selected_param()
+    //  }
+    //  pub fn header_temp_ops(&mut self) {}
+    //  pub fn param_temp_ops(&mut self) {}
+    //   pub fn change_activity_selected_param(&mut self) {
+    //       let idx = self.temp_header_param_idx.clone();
+    //       if let Some(req) = self.current_request_as_mut() {
+    //           if let Some(params) = &mut req.params {
+    //               if idx <= params.len() - 1 {
+    //                   params[idx].2 = !params[idx].2;
+    //               }
+    //           }
+    //       }
+    //   }
+    //   pub fn change_activity_selected_header(&mut self) {
+    //       let idx = self.temp_header_param_idx.clone();
+    //       if let Some(req) = self.current_request_as_mut() {
+    //           if let Some(headers) = &mut req.headers {
+    //               if idx <= headers.len() - 1 {
+    //                   headers[idx].2 = !headers[idx].2;
+    //               }
+    //           }
+    //       }
+    //   }
     pub fn initiate_temp_envs(&mut self) {
         self.temp_envs = Some(environments::TempEnv::new(self.all_envs.clone()));
     }
@@ -854,81 +462,81 @@ impl<'a> App<'a> {
     pub fn deselect_env(&mut self) {
         self.current_env_idx = None;
     }
-    pub fn add_to_req_body(&mut self, c: char) {
-        if let Some(req) = self.current_request_as_mut() {
-            req.add_to_req_body(c);
-        }
-    }
-    pub fn remove_from_req_body(&mut self) {
-        if let Some(req) = self.current_request_as_mut() {
-            req.remove_from_req_body();
-        }
-    }
-    pub fn req_body(&self) -> Body {
-        if let Some(req) = self.current_request() {
-            return req.body.clone();
-        };
-        Body::default()
-    }
-    pub fn change_body_kind(&mut self) {
-        if let Some(req) = &mut self.current_request_as_mut() {
-            req.body.kind = req.body.kind.change();
-        }
-    }
-    pub fn next_req(&mut self) {
-        self.current_request_idx += 1;
-        if let Some(req) = &self.requests {
-            if self.current_request_idx >= req.len() {
-                self.current_request_idx = 0;
-            }
-        }
-    }
-    pub fn pre_req(&mut self) {
-        if let Some(req) = &self.requests {
-            if self.current_request_idx == 0 {
-                self.current_request_idx = req.len() - 1;
-                return;
-            };
-            self.current_request_idx -= 1;
-        }
-    }
-    pub fn new_request(&mut self) {
-        if let Some(req) = &mut self.requests {
-            req.push(request::Request::new());
-            self.current_request_idx = req.len() - 1;
-        };
-    }
-    pub fn save_current_req(&mut self) -> Result<(), Error> {
-        let mut name = String::new();
-        if let Some(req) = self.current_request() {
-            name = req.name.clone();
-            if let Some(cols) = &self.collections {
-                let path: String = cols.get_node().ok_or::<Error>(Error::NoRequestErr(3))?.path;
-                match fs::metadata(path.clone()) {
-                    Ok(f) => {
-                        if f.is_dir() {
-                            match fs::File::create(format!("{}/{}.rph", path, name)) {
-                                Ok(mut f) => {
-                                    let to_write = serde_json::to_vec(req).unwrap();
-                                    f.write(&to_write).unwrap();
-                                    self.reload_collections();
-                                }
-                                Err(e) => return Err(Error::FileOperationsErr(e)),
-                            };
-                        }
-                    }
-                    Err(e) => return Err(Error::FileOperationsErr(e)),
-                };
-            }
-        } else {
-            return Err(Error::NoRequestErr(1));
-        };
-        Ok(())
-    }
-    pub fn open_collections(&mut self) {
-        self.selected_main_window = MainWindows::CollectionScr;
-        self.set_collections();
-    }
+    //   pub fn add_to_req_body(&mut self, c: char) {
+    //       if let Some(req) = self.current_request_as_mut() {
+    //           req.add_to_req_body(c);
+    //       }
+    //   }
+    //   pub fn remove_from_req_body(&mut self) {
+    //       if let Some(req) = self.current_request_as_mut() {
+    //           req.remove_from_req_body();
+    //       }
+    //   }
+    //   pub fn req_body(&self) -> Body {
+    //       if let Some(req) = self.current_request() {
+    //           return req.body.clone();
+    //       };
+    //       Body::default()
+    //   }
+    //   pub fn change_body_kind(&mut self) {
+    //       if let Some(req) = &mut self.current_request_as_mut() {
+    //           req.body.kind = req.body.kind.change();
+    //       }
+    //   }
+    //   pub fn next_req(&mut self) {
+    //       self.current_request_idx += 1;
+    //       if let Some(req) = &self.requests {
+    //           if self.current_request_idx >= req.len() {
+    //               self.current_request_idx = 0;
+    //           }
+    //       }
+    //   }
+    //   pub fn pre_req(&mut self) {
+    //       if let Some(req) = &self.requests {
+    //           if self.current_request_idx == 0 {
+    //               self.current_request_idx = req.len() - 1;
+    //               return;
+    //           };
+    //           self.current_request_idx -= 1;
+    //       }
+    //   }
+    //   pub fn new_request(&mut self) {
+    //       if let Some(req) = &mut self.requests {
+    //           req.push(request::Request::new());
+    //           self.current_request_idx = req.len() - 1;
+    //       };
+    //   }
+    //   pub fn save_current_req(&mut self) -> Result<(), Error> {
+    //       let mut name = String::new();
+    //       if let Some(req) = self.current_request() {
+    //           name = req.name.clone();
+    //           if let Some(cols) = &self.collections {
+    //               let path: String = cols.get_node().ok_or::<Error>(Error::NoRequestErr(3))?.path;
+    //               match fs::metadata(path.clone()) {
+    //                   Ok(f) => {
+    //                       if f.is_dir() {
+    //                           match fs::File::create(format!("{}/{}.rph", path, name)) {
+    //                               Ok(mut f) => {
+    //                                   let to_write = serde_json::to_vec(req).unwrap();
+    //                                   f.write(&to_write).unwrap();
+    //                                   self.reload_collections();
+    //                               }
+    //                               Err(e) => return Err(Error::FileOperationsErr(e)),
+    //                           };
+    //                       }
+    //                   }
+    //                   Err(e) => return Err(Error::FileOperationsErr(e)),
+    //               };
+    //           }
+    //       } else {
+    //           return Err(Error::NoRequestErr(1));
+    //       };
+    //       Ok(())
+    //   }
+    //   pub fn open_collections(&mut self) {
+    //       self.selected_main_window = MainWindows::CollectionScr;
+    //       self.set_collections();
+    //   }
     pub fn reload_collections(&mut self) {
         let mut current_state = TreeState::default();
         if let Some(cols) = &self.collections {
@@ -959,85 +567,85 @@ impl<'a> App<'a> {
         );
         self.collections = Some(StatefulTree::with_items(vec![cols.unwrap()]));
     }
-    pub fn open_request_from_collection(&mut self) -> Result<(), Error> {
-        if let Some(cols) = &self.collections {
-            let path = cols.get_node().ok_or::<Error>(Error::NoRequestErr(3))?.path;
-            if path == "".to_string() {
-                return Err(Error::NoRequestErr(4));
-            }
-            match fs::metadata(path.clone()) {
-                Ok(f) => {
-                    if f.is_file() {
-                        self.add_to_requests_by_path(path.clone())?
-                    };
-                    if f.is_dir() {
-                        for entry in fs::read_dir(path.clone()).unwrap() {
-                            let entry = entry.unwrap();
-                            match entry.path().extension() {
-                                Some(ext) => {
-                                    if ext == "rph" {
-                                        self.add_to_requests_by_path(
-                                            entry.path().to_string_lossy().to_string(),
-                                        )?
-                                    }
-                                }
-                                None => continue,
-                            }
-                        }
-                    }
-                }
-                Err(e) => return Err(Error::FileOperationsErr(e)),
-            };
-        };
-        Ok(())
-    }
-    fn add_to_requests_by_path(&mut self, path: String) -> Result<(), Error> {
-        match fs::File::open(path) {
-            Ok(f) => {
-                let mut reader = BufReader::new(f);
-                let mut buffer = Vec::new();
-                reader.read_to_end(&mut buffer).unwrap();
-                let new_req = serde_json::from_str(from_utf8(&buffer).unwrap()).unwrap();
-                if let Some(req) = &mut self.requests {
-                    req.push(new_req);
-                };
-                Ok(())
-            }
-            Err(e) => return Err(Error::FileOperationsErr(e)),
-        }
-    }
-    pub fn close_collections(&mut self) {
-        self.selected_main_window = MainWindows::RequestScr;
-        self.collections = None;
-    }
-    pub fn has_new_collection(&self) -> bool {
-        self.has_new_collection
-    }
-    pub fn has_new_req_name(&self) -> bool {
-        self.has_new_req_name
-    }
-    pub fn insert_collection_or_name(&mut self) {
-        if self.has_new_req_name {
-            let req_name = self.collection_or_name.clone();
-            if let Some(req) = &mut self.current_request_as_mut() {
-                req.name = req_name;
-                self.has_new_req_name = false;
-                self.collection_or_name = "".to_string();
-            }
-        }
-        if self.has_new_collection {
-            if let Some(cols) = &self.collections {
-                let path = cols.get_node().unwrap().path;
-                if path == "".to_string() {
-                    return;
-                }
-                fs::create_dir(format!("{}/{}", path, self.collection_or_name.clone())).unwrap();
-                self.has_new_collection = false;
-                self.collection_or_name = "".to_string();
-                self.reload_collections();
-            }
-        }
-    }
+    //    pub fn open_request_from_collection(&mut self) -> Result<(), Error> {
+    //        if let Some(cols) = &self.collections {
+    //            let path = cols.get_node().ok_or::<Error>(Error::NoRequestErr(3))?.path;
+    //            if path == "".to_string() {
+    //                return Err(Error::NoRequestErr(4));
+    //            }
+    //            match fs::metadata(path.clone()) {
+    //                Ok(f) => {
+    //                    if f.is_file() {
+    //                        self.add_to_requests_by_path(path.clone())?
+    //                    };
+    //                    if f.is_dir() {
+    //                        for entry in fs::read_dir(path.clone()).unwrap() {
+    //                            let entry = entry.unwrap();
+    //                            match entry.path().extension() {
+    //                                Some(ext) => {
+    //                                    if ext == "rph" {
+    //                                        self.add_to_requests_by_path(
+    //                                            entry.path().to_string_lossy().to_string(),
+    //                                        )?
+    //                                    }
+    //                                }
+    //                                None => continue,
+    //                            }
+    //                        }
+    //                    }
+    //                }
+    //                Err(e) => return Err(Error::FileOperationsErr(e)),
+    //            };
+    //        };
+    //        Ok(())
+    //    }
+    //    fn add_to_requests_by_path(&mut self, path: String) -> Result<(), Error> {
+    //        match fs::File::open(path) {
+    //            Ok(f) => {
+    //                let mut reader = BufReader::new(f);
+    //                let mut buffer = Vec::new();
+    //                reader.read_to_end(&mut buffer).unwrap();
+    //                let new_req = serde_json::from_str(from_utf8(&buffer).unwrap()).unwrap();
+    //                if let Some(req) = &mut self.requests {
+    //                    req.push(new_req);
+    //                };
+    //                Ok(())
+    //            }
+    //            Err(e) => return Err(Error::FileOperationsErr(e)),
+    //        }
+    //    }
+    //    pub fn close_collections(&mut self) {
+    //        self.selected_main_window = MainWindows::RequestScr;
+    //        self.collections = None;
+    //    }
+    //    pub fn has_new_collection(&self) -> bool {
+    //        self.has_new_collection
+    //    }
+    //    pub fn has_new_req_name(&self) -> bool {
+    //        self.has_new_req_name
+    //    }
+    //    pub fn insert_collection_or_name(&mut self) {
+    //        if self.has_new_req_name {
+    //            let req_name = self.collection_or_name.clone();
+    //            if let Some(req) = &mut self.current_request_as_mut() {
+    //                req.name = req_name;
+    //                self.has_new_req_name = false;
+    //                self.collection_or_name = "".to_string();
+    //            }
+    //        }
+    //        if self.has_new_collection {
+    //            if let Some(cols) = &self.collections {
+    //                let path = cols.get_node().unwrap().path;
+    //                if path == "".to_string() {
+    //                    return;
+    //                }
+    //                fs::create_dir(format!("{}/{}", path, self.collection_or_name.clone())).unwrap();
+    //                self.has_new_collection = false;
+    //                self.collection_or_name = "".to_string();
+    //                self.reload_collections();
+    //            }
+    //        }
+    //    }
     pub fn add_to_collection_or_name_string(&mut self, x: char) {
         if self.has_new_collection || self.has_new_req_name {
             self.collection_or_name.push(x);
@@ -1053,15 +661,15 @@ impl<'a> App<'a> {
         self.has_new_collection = false;
         self.collection_or_name = "".to_string();
     }
-    pub fn current_req_has_name(&self) -> bool {
-        if let Some(req) = self.current_request() {
-            if req.name == "".to_string() {
-                return false;
-            }
-            return true;
-        }
-        false
-    }
+    //    pub fn current_req_has_name(&self) -> bool {
+    //        if let Some(req) = self.current_request() {
+    //            if req.name == "".to_string() {
+    //                return false;
+    //            }
+    //            return true;
+    //        }
+    //        false
+    //    }
     fn create_tree(&mut self, node: Node, mut depth: usize) -> Option<TreeItem> {
         let mut result = TreeItem::new_leaf(node.clone());
         if depth > 10 || !fs::metadata(node.path.clone()).unwrap().is_dir() {

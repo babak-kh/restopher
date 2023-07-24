@@ -2,11 +2,13 @@ use std::collections::HashMap;
 use std::default;
 
 use reqwest::header::HeaderMap;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use crate::response::Response;
+use crate::utils::text_box::TextBox;
 
-#[derive(Debug, Serialize, Deserialize)]
+use super::response::Response;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum HttpVerb {
     GET,
     POST,
@@ -37,51 +39,6 @@ impl HttpVerb {
             HttpVerb::PUT => HttpVerb::POST,
             HttpVerb::DELETE => HttpVerb::PUT,
         }
-    }
-}
-#[derive(Debug)]
-pub struct KVElement {
-    pub text: String,
-    pub active: bool,
-}
-#[derive(Debug)]
-pub struct KV {
-    pub key: KVElement,
-    pub value: KVElement,
-}
-impl KV {
-    pub fn new() -> Self {
-        KV {
-            key: KVElement {
-                text: "".to_string(),
-                active: true,
-            },
-            value: KVElement {
-                text: "".to_string(),
-                active: false,
-            },
-        }
-    }
-    pub fn change_active(&mut self) {
-        self.value.active = !self.value.active;
-        self.key.active = !self.key.active;
-    }
-    pub fn add_to_active(&mut self, ch: char) {
-        if self.key.active {
-            self.key.text.push(ch);
-            return;
-        }
-        self.value.text.push(ch)
-    }
-    pub fn remove_from_active(&mut self) {
-        if self.key.active {
-            self.key.text.pop();
-            return;
-        }
-        self.value.text.pop();
-    }
-    pub fn is_key_active(&self) -> bool {
-        return self.key.active;
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,16 +83,8 @@ pub struct Request {
     pub address: Address,
     pub verb: HttpVerb,
     pub response: Option<Response>,
-
-    #[serde(skip)]
-    pub new_header: Option<KV>,
-
-    #[serde(skip)]
-    pub new_param: Option<KV>,
-
-    #[serde(skip)]
-    pub new_name: Option<String>
 }
+
 impl Request {
     pub fn new() -> Self {
         Request {
@@ -147,13 +96,10 @@ impl Request {
                 payload: None,
             },
             address: Address {
-                uri: "".to_string(),
+                uri: TextBox::new(),
             },
             verb: HttpVerb::GET,
             response: None,
-            new_header: None,
-            new_param: None,
-            new_name: None,
         }
     }
     pub fn handle_headers(&self) -> HashMap<String, String> {
@@ -201,15 +147,39 @@ impl Request {
             None => (),
         }
     }
+    pub fn add_to_header(&mut self, key: String, value: String, active: bool) {
+        if let Some(ref mut h) = self.headers {
+            h.push((key, value, active));
+        } else {
+            self.headers = Some(vec![(key, value, active)])
+        }
+    }
+    pub fn add_to_param(&mut self, key: String, value: String, active: bool) {
+        if let Some(ref mut h) = self.params {
+            h.push((key, value, active));
+        } else {
+            self.headers = Some(vec![(key, value, active)])
+        }
+    }
+    pub fn delete_header(&mut self, idx: usize) {
+        if let Some(h) = &mut self.headers {
+            h.remove(idx);
+        }
+    }
+    pub fn delete_param(&mut self, idx: usize) {
+        if let Some(h) = &mut self.params {
+            h.remove(idx);
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Address {
-    pub uri: String,
+    pub uri: TextBox,
 }
 impl Address {
     pub fn to_string(&self) -> String {
-        self.uri.clone()
+        self.uri.to_string()
     }
     pub fn pop(&mut self) {
         self.uri.pop();
