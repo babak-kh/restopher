@@ -1,11 +1,15 @@
-use crate::components::{default_block, tabs, RequestController};
-use crate::environments;
-use crate::keys::keys::{is_quit, transform};
+use crate::components::{
+    self, default_block, tabs, RequestController, ADDRESS, BODY, HEADERS, PARAMS,
+};
+use crate::keys::keys::{
+    is_navigation, is_quit, transform, Event as AppEvent, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP,
+};
 use crate::utils::app_state::{Section, State, REQUESTS};
 use crate::{
     components::{HttpVerb, ReqBundle, ReqTabs, RequestOptions, RespTabs, ResponseOptions},
     environments::{Environment, KV},
 };
+use crate::{environments, layout};
 use crossterm::event::{self, Event, KeyEvent};
 use regex::Regex;
 use reqwest::header::HeaderMap;
@@ -20,8 +24,10 @@ use std::{
 use tree::{stateful_tree::StatefulTree, Node, TreeItem, TreeState};
 use tui::backend::Backend;
 use tui::layout::{Constraint, Direction, Layout};
-use tui::text::Spans;
-use tui::{Frame, Terminal};
+use tui::style::{Color, Style};
+use tui::text::{Span, Spans};
+use tui::widgets::{StatefulWidget, Widget};
+use tui::{widgets, Frame, Terminal};
 
 const ENV_PATH: &str = "envs";
 const COLLECTION_PATH: &str = "collections";
@@ -88,7 +94,7 @@ impl<'a> App<'a> {
         };
         let mut requests = vec![ReqBundle::new()];
         App {
-            state: vec![REQUESTS],
+            state: vec![REQUESTS, HEADERS],
             client: reqwest::Client::new(),
             req_controller: rc,
             requests,
@@ -122,7 +128,11 @@ impl<'a> App<'a> {
                 if is_quit(&even) {
                     return;
                 }
-                if *even.state.last().unwrap() == REQUESTS {
+                if is_navigation(&even) {
+                    navigation(&even, &mut self.state);
+                    continue;
+                }
+                if *self.state.last().unwrap() == REQUESTS {
                     self.req_controller
                         .handle(even, &mut self.requests[self.current_request_idx]);
                 }
@@ -130,13 +140,7 @@ impl<'a> App<'a> {
         }
     }
     fn ui<B: Backend>(&self, f: &mut Frame<B>) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![
-                Constraint::Percentage(6), // req names
-                Constraint::Percentage(94),
-            ])
-            .split(f.size());
+        let lay = layout::AppLayout::new(f.size());
         let t = tabs(
             self.get_req_names()
                 .into_iter()
@@ -149,10 +153,47 @@ impl<'a> App<'a> {
         RequestController::render(
             f,
             &self.requests[self.current_request_idx],
-            chunks[1],
+            lay.request,
             &self.state,
         );
-        f.render_widget(t, chunks[0]);
+        f.render_widget(self.render_request_tabs(), lay.req_tabs);
+        f.render_widget(self.render_response_tabs(), lay.resp_tabs);
+        f.render_widget(t, lay.requests);
+    }
+
+    fn render_response_tabs(&self) -> impl Widget + 'a {
+        components::tabs(
+            self.resp_tabs
+                .resp_tabs
+                .iter()
+                .map(|t| {
+                    let (first, rest) = t.split_at();
+                    Spans::from(vec![
+                        Span::styled(first, Style::default().fg(Color::Yellow)),
+                        Span::styled(rest, Style::default().fg(Color::White)),
+                    ])
+                })
+                .collect(),
+            "Request data tabs",
+            0,
+        )
+    }
+    fn render_request_tabs(&self) -> impl Widget + 'a {
+        components::tabs(
+            self.req_tabs
+                .req_tabs
+                .iter()
+                .map(|t| {
+                    let (first, rest) = t.split_at();
+                    Spans::from(vec![
+                        Span::styled(first, Style::default().fg(Color::Yellow)),
+                        Span::styled(rest, Style::default().fg(Color::White)),
+                    ])
+                })
+                .collect(),
+            "Request data tabs",
+            0,
+        )
     }
     pub fn get_req_names(&self) -> Vec<String> {
         let mut result = Vec::new();
@@ -161,46 +202,6 @@ impl<'a> App<'a> {
         }
         result
     }
-    // pub fn up(&mut self) {
-    //     match self.selected_window {
-    //         Windows::Address => self.selected_window = Windows::ReqNames,
-    //         Windows::Response => self.selected_window = Windows::RequestData,
-    //         Windows::Verb => self.selected_window = Windows::ReqNames,
-    //         Windows::RequestData => self.selected_window = Windows::Address,
-    //         Windows::EnvSelection => self.selected_window = Windows::ReqNames,
-    //         Windows::ReqNames => self.selected_window = Windows::Response,
-    //     };
-    // }
-    // pub fn down(&mut self) {
-    //     match self.selected_window {
-    //         Windows::Address => self.selected_window = Windows::RequestData,
-    //         Windows::Response => self.selected_window = Windows::ReqNames,
-    //         Windows::Verb => self.selected_window = Windows::RequestData,
-    //         Windows::RequestData => self.selected_window = Windows::Response,
-    //         Windows::EnvSelection => self.selected_window = Windows::RequestData,
-    //         Windows::ReqNames => self.selected_window = Windows::Address,
-    //     };
-    // }
-    // pub fn right(&mut self) {
-    //     match self.selected_window {
-    //         Windows::Address => (),
-    //         Windows::Response => (),
-    //         Windows::Verb => self.selected_window = Windows::EnvSelection,
-    //         Windows::RequestData => (),
-    //         Windows::EnvSelection => self.selected_window = Windows::Address,
-    //         Windows::ReqNames => (),
-    //     };
-    // }
-    // pub fn left(&mut self) {
-    //     match self.selected_window {
-    //         Windows::Address => self.selected_window = Windows::EnvSelection,
-    //         Windows::Response => (),
-    //         Windows::Verb => (),
-    //         Windows::RequestData => (),
-    //         Windows::EnvSelection => self.selected_window = Windows::Verb,
-    //         Windows::ReqNames => (),
-    //     };
-    // }
     pub async fn call_request(&mut self) -> Result<String, Error> {
         let mut addr = String::new();
         let mut params = HashMap::new();
@@ -759,4 +760,62 @@ impl EnvReplacer for HashMap<String, String, RandomState> {
         }
         result
     }
+}
+
+fn navigation(e: &AppEvent, s: &mut State) {
+    println!("{:?}", s);
+    let mut last_state = s.last_mut().unwrap();
+    match e {
+        NAV_UP => {
+            match *last_state {
+                HEADERS | PARAMS | BODY => {
+                    *last_state = ADDRESS;
+                }
+                _ => (),
+                //Windows::Address => self.selected_window = Windows::ReqNames,
+                //Windows::Response => self.selected_window = Windows::RequestData,
+                //Windows::Verb => self.selected_window = Windows::ReqNames,
+                //Windows::RequestData => self.selected_window = Windows::Address,
+                //Windows::EnvSelection => self.selected_window = Windows::ReqNames,
+                //Windows::ReqNames => self.selected_window = Windows::Response,
+            }
+        }
+        NAV_DOWN => {
+            match *last_state {
+                HEADERS => {}
+                _ => (),
+                //Windows::Address => self.selected_window = Windows::RequestData,
+                //Windows::Response => self.selected_window = Windows::ReqNames,
+                //Windows::Verb => self.selected_window = Windows::RequestData,
+                //Windows::RequestData => self.selected_window = Windows::Response,
+                //Windows::EnvSelection => self.selected_window = Windows::RequestData,
+                //Windows::ReqNames => self.selected_window = Windows::Address,
+            }
+        }
+        NAV_LEFT => {
+            match *last_state {
+                HEADERS => {}
+                _ => (),
+                //Windows::Address => (),
+                //Windows::Response => (),
+                //Windows::Verb => self.selected_window = Windows::EnvSelection,
+                //Windows::RequestData => (),
+                //Windows::EnvSelection => self.selected_window = Windows::Address,
+                //Windows::ReqNames => (),
+            }
+        }
+        NAV_RIGHT => {
+            match *last_state {
+                HEADERS => {}
+                _ => (),
+                //Windows::Address => self.selected_window = Windows::EnvSelection,
+                //Windows::Response => (),
+                //Windows::Verb => (),
+                //Windows::RequestData => (),
+                //Windows::EnvSelection => self.selected_window = Windows::Verb,
+                //Windows::ReqNames => (),
+            }
+        }
+        _ => (),
+    };
 }

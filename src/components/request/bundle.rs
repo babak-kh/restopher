@@ -1,15 +1,27 @@
 use std::collections::HashMap;
 
-use reqwest::header::HeaderMap;
-use tui::{layout::{Rect, Layout, Direction, Constraint}, backend::Backend, Frame};
+use reqwest::header::{self, HeaderMap};
+use tui::{
+    backend::Backend,
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::Spans,
+    widgets::{Block, Cell, Paragraph, Row, Table, TableState},
+    Frame,
+};
 
-use crate::utils::app_state::State;
+use crate::{
+    components::{self, default_block, to_selected},
+    layout,
+    utils::app_state::{State, REQUESTS},
+};
 
 use super::{
     request::Request,
     response::{handle_response_headers, Response},
+    ui,
     view::ReqView,
-    HttpVerb, ui,
+    HttpVerb, ADDRESS, BODY, HEADERS, PARAMS, VERB,
 };
 
 #[derive(Debug)]
@@ -107,9 +119,6 @@ impl ReqBundle {
     pub fn headers(&self) -> Option<Vec<(String, String, bool)>> {
         self.request.headers.clone()
     }
-    pub fn params(&self) -> Option<Vec<(String, String, bool)>> {
-        self.request.params.clone()
-    }
     pub fn handle_headers(&self) -> HashMap<String, String> {
         self.request.handle_headers()
     }
@@ -118,6 +127,10 @@ impl ReqBundle {
     }
     pub fn handle_json_body(&self) -> Result<Option<serde_json::Value>, crate::app::Error> {
         self.request.handle_json_body()
+    }
+
+    pub fn params(&self) -> Option<Vec<(String, String, bool)>> {
+        self.request.params.clone()
     }
     pub fn set_response_headers(&mut self, h: &HeaderMap) -> Result<(), crate::app::Error> {
         let headers = handle_response_headers(h)?;
@@ -206,23 +219,163 @@ impl ReqBundle {
         let idx = self.view.param_idx();
         self.request.delete_param(idx)
     }
-    pub fn render<B: Backend>(&self, f: &mut Frame<B>, rect: Rect, state: &State) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints(vec![
-                Constraint::Percentage(6),  // verb + address
-                Constraint::Percentage(6),  // req tabs
-                Constraint::Percentage(41), // req headers/body/params
-                Constraint::Percentage(6),  // resp headers/body tabs
-                Constraint::Percentage(35), // response
-            ])
-            .split(rect);
+    pub fn render<B: Backend>(&self, f: &mut Frame<B>, r: layout::RequestsLayout, state: &State) {
         let verb_address_rect = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![Constraint::Percentage(20), Constraint::Percentage(80)])
-            .split(chunks[0]);
+            .split(r.verb_address);
+        let v = Paragraph::new(self.request.verb.to_string());
+        let mut vb = default_block("verb");
+        if *state.last().unwrap() == VERB {
+            vb = to_selected(vb)
+        }
+        let addr = Paragraph::new(self.request.address.to_string());
+        let mut ab = default_block("address");
+        if *state.last().unwrap() == ADDRESS {
+            ab = to_selected(ab)
+        }
+        f.render_widget(v.block(vb), verb_address_rect[0]);
+        f.render_widget(addr.block(ab), verb_address_rect[1]);
+        self.handle_request_data(f, r, state)
+    }
+    fn handle_request_data<B: Backend>(
+        &self,
+        f: &mut Frame<B>,
+        r: layout::RequestsLayout,
+        state: &State,
+    ) {
+        match state[state.len() - 1] {
+            BODY => (),
+            PARAMS => self.render_params(f, state, r.request_data),
+            HEADERS => self.render_headers(f, state, r.request_data),
+            _ => (),
+        }
+    }
+    fn render_params<B: Backend>(&self, f: &mut Frame<B>, state: &State, mut rect: Rect) {
+        if self.view.has_new_param() {
+            let parm_data = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(vec![Constraint::Percentage(80), Constraint::Percentage(20)])
+                .split(rect);
+            rect = parm_data[0];
+            let mut key_block = components::default_block("Key");
+            let mut value_block = components::default_block("Value");
+            if self.view.is_key_active_in_param() {
+                key_block = to_selected(key_block);
+            } else {
+                value_block = to_selected(value_block);
+            }
+            let k = Paragraph::new(self.view.current_set_param().0)
+                .wrap(tui::widgets::Wrap { trim: true })
+                .block(key_block);
+            let v = Paragraph::new(self.view.current_set_param().1)
+                .wrap(tui::widgets::Wrap { trim: true })
+                .block(value_block);
+            let h = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(parm_data[1]);
+            f.render_widget(k, h[0]);
+            f.render_widget(v, h[1]);
+        }
+        if let Some(params) = &self.request.params {
+            let selected_style = Style::default().add_modifier(Modifier::BOLD);
+            let normal_style = Style::default().bg(Color::Blue);
+            let rows = params.iter().map(|item| {
+                let height = 1;
+                let cells = {
+                    vec![
+                        Cell::from(item.0.clone()),
+                        Cell::from(item.1.clone()),
+                        Cell::from(format!(
+                            "{}",
+                            if item.2.clone() { "Active" } else { "Inactive" }
+                        )),
+                    ]
+                };
+                Row::new(cells).height(height as u16).bottom_margin(0)
+            });
+            let t = Table::new(rows)
+                .block(default_block("params"))
+                .highlight_style(selected_style)
+                .highlight_symbol(">> ")
+                .widths(&[
+                    Constraint::Percentage(50),
+                    Constraint::Length(30),
+                    Constraint::Min(10),
+                ]);
+            let state = &mut TableState::default();
+            state.select(Some(0));
+            f.render_stateful_widget(t, rect, state);
+        } else {
+            f.render_widget(default_block("Body"), rect)
+        }
+    }
 
-        f.render_widget(ui::verb(self.request.verb.clone()), verb_address_rect[0]);
-        f.render_widget(ui::address(self.request.address.to_string()), verb_address_rect[1]);
+    fn render_body<B: Backend>(&self, f: &mut Frame<B>, rect: Rect) {}
+
+    fn render_headers<B: Backend>(&self, f: &mut Frame<B>, state: &State, mut rect: Rect) {
+        if self.view.has_new_header() {
+            let head_data = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(vec![Constraint::Percentage(80), Constraint::Percentage(20)])
+                .split(rect);
+            rect = head_data[0];
+            let mut key_block = components::default_block("Key");
+            let mut value_block = components::default_block("Value");
+            if self.view.is_key_active_in_header() {
+                key_block = to_selected(key_block);
+            } else {
+                value_block = to_selected(value_block);
+            }
+            let k = Paragraph::new(self.view.current_set_header().0)
+                .wrap(tui::widgets::Wrap { trim: true })
+                .block(key_block);
+            let v = Paragraph::new(self.view.current_set_header().1)
+                .wrap(tui::widgets::Wrap { trim: true })
+                .block(value_block);
+            let h = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(vec![Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(head_data[1]);
+            f.render_widget(k, h[0]);
+            f.render_widget(v, h[1]);
+        }
+        let mut b = default_block("Headers");
+        if *state.last().unwrap() == HEADERS {
+            b = to_selected(b)
+        }
+        if let Some(headers) = &self.request.headers {
+            let selected_style = Style::default().add_modifier(Modifier::BOLD);
+            let normal_style = Style::default().bg(Color::Blue);
+            let rows = headers.iter().map(|item| {
+                let height = 1;
+                let cells = {
+                    vec![
+                        Cell::from(item.0.clone()),
+                        Cell::from(item.1.clone()),
+                        Cell::from(format!(
+                            "{}",
+                            if item.2.clone() { "Active" } else { "Inactive" }
+                        )),
+                    ]
+                };
+                Row::new(cells).height(height as u16).bottom_margin(0)
+            });
+            let t = Table::new(rows)
+                .block(b)
+                .highlight_style(selected_style)
+                .highlight_symbol(">> ")
+                .widths(&[
+                    Constraint::Percentage(50),
+                    Constraint::Length(30),
+                    Constraint::Min(10),
+                ]);
+            let state = &mut TableState::default();
+            state.select(Some(0));
+            f.render_stateful_widget(t, rect, state);
+        } else {
+            f.render_widget(b, rect)
+        }
     }
 }

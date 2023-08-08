@@ -2,11 +2,13 @@ use crossterm::event::{self, KeyCode, KeyEvent, KeyModifiers};
 
 use crate::utils::app_state::State;
 
+#[derive(PartialEq, Eq)]
 pub enum Modifier {
     Control,
     Shift,
     Alt,
 }
+#[derive(PartialEq, Eq)]
 pub enum Key {
     Char(char),
     Up,
@@ -14,12 +16,28 @@ pub enum Key {
     Left,
     Right,
 }
-
-pub struct Event<'a> {
+#[derive(PartialEq, Eq)]
+pub struct Event {
     pub modifier: Option<Modifier>,
     pub key: Key,
-    pub state: &'a State,
 }
+
+pub const NAV_UP: &Event = &Event {
+    modifier: Some(Modifier::Control),
+    key: Key::Char('k'),
+};
+pub const NAV_DOWN: &Event = &Event {
+    modifier: Some(Modifier::Control),
+    key: Key::Char('j'),
+};
+pub const NAV_LEFT: &Event = &Event {
+    modifier: Some(Modifier::Control),
+    key: Key::Char('h'),
+};
+pub const NAV_RIGHT: &Event = &Event {
+    modifier: Some(Modifier::Control),
+    key: Key::Char('l'),
+};
 
 pub fn transform(key: KeyEvent, state: &mut State) -> Event {
     let mut modi: Option<Modifier> = None;
@@ -63,8 +81,25 @@ pub fn transform(key: KeyEvent, state: &mut State) -> Event {
     Event {
         modifier: modi,
         key: k,
-        state: state,
     }
+}
+fn is_modifier(e: &Event, ms: Vec<Modifier>) -> bool {
+    if let Some(em) = &e.modifier {
+        for m in ms {
+            if *em == m {
+                return true;
+            }
+        }
+    }
+    false
+}
+fn is_key(e: &Event, ks: Vec<Key>) -> bool {
+    for m in ks {
+        if e.key == m {
+            return true;
+        }
+    }
+    false
 }
 
 pub fn is_quit(e: &Event) -> bool {
@@ -82,4 +117,7 @@ pub fn is_quit(e: &Event) -> bool {
         };
     }
     false
+}
+pub fn is_navigation(e: &Event) -> bool {
+    e == NAV_UP || e == NAV_DOWN || e == NAV_LEFT || e == NAV_RIGHT
 }

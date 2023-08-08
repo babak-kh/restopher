@@ -1,13 +1,13 @@
-use tui::{layout::Rect, widgets::{Widget, Paragraph}};
+use tui::{layout::Rect, widgets::{Widget, Paragraph, Block}};
 
 use crate::components::default_block;
 
 use super::HttpVerb;
 
-pub fn verb(v: HttpVerb) -> impl Widget {
+pub fn verb<'a>(v: HttpVerb) -> Paragraph<'a> {
     Paragraph::new(v.to_string()).block(default_block("verb"))
 }
 
-pub fn address(addr: String) -> impl Widget {
+pub fn address<'a>(addr: String) -> Paragraph<'a> {
     Paragraph::new(addr).block(default_block("address"))
 }

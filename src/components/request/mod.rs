@@ -16,14 +16,17 @@ use tui::{
 
 use crate::{
     keys::keys::{Event, Key, Modifier},
+    layout,
     utils::app_state::{Section, State},
 };
 
 use super::default_block;
 
-const PARAMS: Section = "params";
-const HEADERS: Section = "headers";
-const BODY: Section = "body";
+pub const ADDRESS: Section = "address";
+pub const VERB: Section = "verb";
+pub const PARAMS: Section = "params";
+pub const HEADERS: Section = "headers";
+pub const BODY: Section = "body";
 
 pub struct RequestController {}
 
@@ -41,7 +44,12 @@ impl RequestController {
         }
         Ok(())
     }
-    pub fn render<B: Backend>(f: &mut Frame<B>, req: &ReqBundle, rect: Rect, state: &State) {
+    pub fn render<B: Backend>(
+        f: &mut Frame<B>,
+        req: &ReqBundle,
+        rect: layout::RequestsLayout,
+        state: &State,
+    ) {
         req.render(f, rect, state);
     }
 }

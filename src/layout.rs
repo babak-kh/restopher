@@ -234,3 +234,40 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         )
         .split(popup_layout[1])[1]
 }
+
+pub struct AppLayout {
+    pub requests: Rect,
+    pub req_tabs: Rect,
+    pub request: RequestsLayout,
+    pub resp_tabs: Rect,
+}
+impl AppLayout {
+    pub fn new(r: Rect) -> Self {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints(vec![
+                Constraint::Percentage(6),  // req names
+                Constraint::Percentage(6),  // verb + address
+                Constraint::Percentage(6),  // req tabs
+                Constraint::Percentage(41), // req headers/body/params
+                Constraint::Percentage(6),  // resp headers/body tabs
+                Constraint::Percentage(35), // response
+            ])
+            .split(r);
+        AppLayout {
+            requests: chunks[0],
+            req_tabs: chunks[2],
+            request: RequestsLayout {
+                verb_address: chunks[1],
+                request_data: chunks[3],
+                response_data: chunks[5],
+            },
+            resp_tabs: chunks[4],
+        }
+    }
+}
+pub struct RequestsLayout {
+    pub verb_address: Rect,
+    pub request_data: Rect,
+    pub response_data: Rect,
+}
