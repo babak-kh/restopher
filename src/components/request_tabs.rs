@@ -1,8 +1,27 @@
+use crate::components::request::{BODY, HEADERS, PARAMS};
+use crate::utils::app_state::Section;
+
 #[derive(Debug)]
 pub enum RequestOptions<'a> {
     Headers(usize, &'a str),
     Params(usize, &'a str),
     Body(usize, &'a str),
+}
+impl RequestOptions<'_> {
+    pub fn to_section(&self) -> Section {
+        match self {
+            RequestOptions::Headers(_, _) => HEADERS,
+            RequestOptions::Params(_, _) => PARAMS,
+            RequestOptions::Body(_, _) => BODY,
+        }
+    }
+    pub fn to_string(&self) -> String {
+        match self {
+            RequestOptions::Headers(_, _) => "Headers".to_string(),
+            RequestOptions::Params(_, _) => "Params".to_string(),
+            RequestOptions::Body(_, _) => "Body".to_string(),
+        }
+    }
 }
 impl<'a> RequestOptions<'a> {
     pub fn split_at(&self) -> (&str, &str) {
@@ -13,11 +32,10 @@ impl<'a> RequestOptions<'a> {
         }
     }
 }
-
 #[derive(Debug)]
 pub struct ReqTabs<'a> {
     pub req_tabs: Vec<&'a RequestOptions<'a>>,
-    pub selected_idx: usize,
+    selected_idx: usize,
 }
 impl<'a> ReqTabs<'a> {
     pub fn new() -> Self {
@@ -40,5 +58,8 @@ impl<'a> ReqTabs<'a> {
     }
     pub fn active(&self) -> &RequestOptions {
         self.req_tabs[self.selected_idx]
+    }
+    pub fn active_idx(&self) -> usize {
+        self.selected_idx
     }
 }

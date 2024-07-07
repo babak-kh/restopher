@@ -32,7 +32,7 @@ impl KV {
             self.key.text.push(ch);
             return;
         }
-        self.value.text.push(ch)
+        self.value.text.push(ch);
     }
     pub fn remove_from_active(&mut self) {
         if self.key.active {

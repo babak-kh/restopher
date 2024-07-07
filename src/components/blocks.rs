@@ -1,6 +1,6 @@
-use tui::style::{Color, Modifier, Style};
-use tui::text::{Span, Spans};
-use tui::widgets::{Block, Borders, Tabs};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Span};
+use ratatui::widgets::{Block, Borders, Tabs};
 
 pub fn default_block(name: &str) -> Block {
     Block::default()
@@ -9,7 +9,7 @@ pub fn default_block(name: &str) -> Block {
         .borders(Borders::ALL)
 }
 
-pub fn tabs<'a>(titles: Vec<Spans<'a>>, name: &'a str, selected: usize) -> Tabs<'a> {
+pub fn tabs<'a>(titles: Vec<Span<'a>>, name: &'a str, selected: usize) -> Tabs<'a> {
     Tabs::new(titles)
         .block(Block::default().borders(Borders::ALL).title(name))
         .select(selected)

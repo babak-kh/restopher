@@ -1,6 +1,6 @@
-use tui::backend::Backend;
-use tui::layout::{Constraint, Direction, Layout, Margin, Rect};
-use tui::Frame;
+use ratatui::backend::Backend;
+use ratatui::layout::{Constraint, Direction, Layout, Margin, Rect};
+use ratatui::Frame;
 
 pub struct KV {
     pub key: Rect,
@@ -21,7 +21,7 @@ pub struct CollectionsLayout {
     pub payload: Rect,
 }
 impl CollectionsLayout {
-    pub fn new<B: Backend>(f: &mut Frame<B>, has_new_name: bool, has_new_collection: bool) -> Self {
+    pub fn new(f: &mut Frame, has_new_name: bool, has_new_collection: bool) -> Self {
         let all = f.size().inner(&Margin {
             vertical: 20,
             horizontal: 20,
@@ -63,6 +63,7 @@ pub struct LayoutBuilder {
     pub body: Rect,
     pub req_tabs: Rect,
     pub req_data: Rect,
+    pub resp_data: Rect,
     pub new_header: Option<KV>,
     pub env_selection: Rect,
     pub body_kind: Option<Rect>,
@@ -77,7 +78,7 @@ pub struct EnvironmentLayout {
     pub kvs: Rect,
 }
 impl EnvironmentLayout {
-    pub fn new<B: Backend>(f: &mut Frame<B>, with_new_name: bool, with_new_kv: bool) -> Self {
+    pub fn new(f: &mut Frame, with_new_name: bool, with_new_kv: bool) -> Self {
         let all = f.size().inner(&Margin {
             vertical: 10,
             horizontal: 10,
@@ -128,8 +129,8 @@ impl EnvironmentLayout {
 }
 
 impl LayoutBuilder {
-    pub fn default<B: Backend>(
-        base: &mut Frame<B>,
+    pub fn default(
+        base: &mut Frame,
         with_new_header: bool,
         with_new_param: bool,
         with_new_name: bool,
@@ -190,6 +191,7 @@ impl LayoutBuilder {
             body_kind = Some(body_kind_split[0]);
             req_data = body_kind_split[1];
         };
+
         LayoutBuilder {
             req_names: chunks[0],
             verb: chunks_h[0],
@@ -200,6 +202,7 @@ impl LayoutBuilder {
             body_tabs,
             resp_status_code,
             req_data,
+            resp_data: chunks[6],
             new_header,
             body_kind,
             el: EnvironmentLayout::new(base, with_new_name, with_new_kv),

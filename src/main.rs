@@ -1,9 +1,11 @@
 mod app;
-mod utils;
 mod components;
 mod environments;
-mod layout;
 mod keys;
+mod layout;
+mod main_windows;
+mod utils;
+
 use components::{default_block, to_selected};
 use std::{env, io};
 use tokio;
@@ -15,11 +17,11 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use tui::{
+use ratatui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Rect},
     style::{Color, Modifier, Style},
-    text::{Span, Spans},
+    text::Span,
     widgets::{
         Block, Borders, Cell, Clear, List, ListItem, ListState, Paragraph, Row, Table, TableState,
     },
@@ -854,19 +856,6 @@ async fn main() -> Result<(), io::Error> {
 //    f.render_widget(sc_p.block(sc_block), r.resp_status_code);
 //}
 //
-//fn error_popup<B: Backend>(f: &mut Frame<B>, e: &app::Error, r: Rect) {
-//    let block = Block::default()
-//        .title("Error")
-//        .borders(Borders::ALL)
-//        .border_style(Style::default().fg(Color::Red));
-//    let area = layout::centered_rect(60, 20, r);
-//    let msg = Paragraph::new(format!("{:?}", e))
-//        .wrap(tui::widgets::Wrap { trim: true })
-//        .block(block)
-//        .style(Style::default().fg(Color::Red));
-//    f.render_widget(Clear, area);
-//    f.render_widget(msg, area);
-//}
 //
 //fn show_environments<B: Backend>(f: &mut Frame<B>, app: &App, l: &layout::LayoutBuilder) {
 //    let mut environment_names = components::default_block("Environments");

@@ -2,21 +2,25 @@ use crossterm::event::{self, KeyCode, KeyEvent, KeyModifiers};
 
 use crate::utils::app_state::State;
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum Modifier {
     Control,
     Shift,
     Alt,
 }
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum Key {
     Char(char),
     Up,
     Down,
     Left,
     Right,
+    Backspace,
+    Esc,
+    Enter,
+    Tab,
 }
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct Event {
     pub modifier: Option<Modifier>,
     pub key: Key,
@@ -41,7 +45,7 @@ pub const NAV_RIGHT: &Event = &Event {
 
 pub fn transform(key: KeyEvent, state: &mut State) -> Event {
     let mut modi: Option<Modifier> = None;
-    let mut k: Key;
+    let k: Key;
 
     match key.modifiers {
         KeyModifiers::ALT => modi = Some(Modifier::Alt),
@@ -50,8 +54,8 @@ pub fn transform(key: KeyEvent, state: &mut State) -> Event {
         _ => (),
     }
     match key.code {
-        KeyCode::Backspace => todo!(),
-        KeyCode::Enter => todo!(),
+        KeyCode::Backspace => k = Key::Backspace,
+        KeyCode::Enter => k = Key::Enter,
         KeyCode::Left => k = Key::Left,
         KeyCode::Right => k = Key::Right,
         KeyCode::Up => k = Key::Up,
@@ -60,14 +64,14 @@ pub fn transform(key: KeyEvent, state: &mut State) -> Event {
         KeyCode::End => todo!(),
         KeyCode::PageUp => todo!(),
         KeyCode::PageDown => todo!(),
-        KeyCode::Tab => todo!(),
+        KeyCode::Tab => k = Key::Tab,
         KeyCode::BackTab => todo!(),
         KeyCode::Delete => todo!(),
         KeyCode::Insert => todo!(),
         KeyCode::F(_) => todo!(),
         KeyCode::Char(x) => k = Key::Char(x),
         KeyCode::Null => todo!(),
-        KeyCode::Esc => todo!(),
+        KeyCode::Esc => k = Key::Esc, //todo!(),
         KeyCode::CapsLock => todo!(),
         KeyCode::ScrollLock => todo!(),
         KeyCode::NumLock => todo!(),
@@ -105,7 +109,7 @@ fn is_key(e: &Event, ks: Vec<Key>) -> bool {
 pub fn is_quit(e: &Event) -> bool {
     if let Some(modi) = &e.modifier {
         match modi {
-            Modifier::Control => match e.key {
+            Modifier::Alt => match e.key {
                 Key::Char(x) => {
                     if x == 'q' {
                         return true;

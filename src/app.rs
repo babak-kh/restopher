@@ -1,16 +1,21 @@
 use crate::components::{
-    self, default_block, tabs, RequestController, ADDRESS, BODY, HEADERS, PARAMS,
+    self, default_block, tabs, RequestController, ADDRESS, BODY, HEADERS, PARAMS, VERB,
 };
 use crate::keys::keys::{
     is_navigation, is_quit, transform, Event as AppEvent, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP,
 };
-use crate::utils::app_state::{Section, State, REQUESTS};
+use crate::main_windows::key_registry;
+use crate::utils::app_state::{Section, State, StateItem, REQUESTS};
 use crate::{
-    components::{HttpVerb, ReqBundle, ReqTabs, RequestOptions, RespTabs, ResponseOptions},
+    components::{error_popup, HttpVerb, ReqBundle, ReqTabs, RespTabs},
     environments::{Environment, KV},
 };
 use crate::{environments, layout};
 use crossterm::event::{self, Event, KeyEvent};
+use ratatui::{backend::Backend, layout::{Constraint, Direction, Layout}};
+use ratatui::{style::{Color, Style}, text::Span};
+use ratatui::widgets::{StatefulWidget, Widget};
+use ratatui::{widgets, Frame, Terminal};
 use regex::Regex;
 use reqwest::header::HeaderMap;
 use reqwest::{Response, ResponseBuilderExt};
@@ -22,12 +27,6 @@ use std::{
     str::from_utf8,
 };
 use tree::{stateful_tree::StatefulTree, Node, TreeItem, TreeState};
-use tui::backend::Backend;
-use tui::layout::{Constraint, Direction, Layout};
-use tui::style::{Color, Style};
-use tui::text::{Span, Spans};
-use tui::widgets::{StatefulWidget, Widget};
-use tui::{widgets, Frame, Terminal};
 
 const ENV_PATH: &str = "envs";
 const COLLECTION_PATH: &str = "collections";
@@ -50,6 +49,16 @@ impl Error {
     }
     fn from_serde(e: serde_json::Error) -> Self {
         Error::JsonErr(e)
+    }
+    fn to_string(&self) -> String {
+        match self {
+            Error::NoRequestErr(_) => "no request error".to_string(),
+            Error::ReqwestErr(e) => e.to_string(),
+            Error::JsonErr(e) => e.to_string(),
+            Error::HeaderIsNotString => "header is not string".to_string(),
+            Error::FileOperationsErr(e) => e.to_string(),
+            Error::ParamIsNotString => "param is not string".to_string(),
+        }
     }
 }
 pub struct App<'a> {
@@ -94,7 +103,7 @@ impl<'a> App<'a> {
         };
         let mut requests = vec![ReqBundle::new()];
         App {
-            state: vec![REQUESTS, HEADERS],
+            state: State::default(),
             client: reqwest::Client::new(),
             req_controller: rc,
             requests,
@@ -132,22 +141,64 @@ impl<'a> App<'a> {
                     navigation(&even, &mut self.state);
                     continue;
                 }
-                if *self.state.last().unwrap() == REQUESTS {
-                    self.req_controller
-                        .handle(even, &mut self.requests[self.current_request_idx]);
+                match key_registry(&even, &mut self.state) {
+                    crate::main_windows::ChangeEvent::ChangeRequestTab => {
+                        self.change_request_tab();
+                        continue;
+                    }
+                    crate::main_windows::ChangeEvent::ChangeResponseTab => {
+                        self.change_response_tab();
+                        continue;
+                    }
+                    crate::main_windows::ChangeEvent::SaveRequest => {
+                        self.save_request();
+                        continue;
+                    }
+                    crate::main_windows::ChangeEvent::NewRequest => {
+                        self.new_request();
+                        continue;
+                    }
+                    crate::main_windows::ChangeEvent::PreRequest => {
+                        self.pre_req();
+                        continue;
+                    }
+                    crate::main_windows::ChangeEvent::NextRequest => {
+                        self.next_req();
+                        continue;
+                    }
+                    crate::main_windows::ChangeEvent::CallRequest => {
+                        match self.call_request().await {
+                            Ok(_) => {}
+                            Err(e) => {
+                                self.error_pop_up = (true, Some(e));
+                            }
+                        }
+                        continue;
+                    }
+                    crate::main_windows::ChangeEvent::NoChange => (),
+                }
+                match *self.state.last().main_windows() {
+                    crate::main_windows::MainWindows::Main => {
+                        self.req_controller.handle(
+                            even,
+                            &mut self.requests[self.current_request_idx],
+                            &self.state,
+                        );
+                    }
+                    _ => (),
                 }
             }
         }
     }
-    fn ui<B: Backend>(&self, f: &mut Frame<B>) {
+    fn ui(&mut self, f: &mut Frame) {
         let lay = layout::AppLayout::new(f.size());
         let t = tabs(
             self.get_req_names()
                 .into_iter()
-                .map(|s| Spans::from(s))
+                .map(|s| Span::from(s))
                 .collect(),
             "requests",
-            0,
+            self.current_request_idx,
         )
         .block(default_block("requests"));
         RequestController::render(
@@ -159,6 +210,10 @@ impl<'a> App<'a> {
         f.render_widget(self.render_request_tabs(), lay.req_tabs);
         f.render_widget(self.render_response_tabs(), lay.resp_tabs);
         f.render_widget(t, lay.requests);
+        if self.error_pop_up.0 {
+            error_popup(f, &self.error_pop_up.1.as_ref().unwrap(), f.size());
+            self.error_pop_up.0 = false;
+        }
     }
 
     fn render_response_tabs(&self) -> impl Widget + 'a {
@@ -166,16 +221,10 @@ impl<'a> App<'a> {
             self.resp_tabs
                 .resp_tabs
                 .iter()
-                .map(|t| {
-                    let (first, rest) = t.split_at();
-                    Spans::from(vec![
-                        Span::styled(first, Style::default().fg(Color::Yellow)),
-                        Span::styled(rest, Style::default().fg(Color::White)),
-                    ])
-                })
+                .map(|t| Span::from(t.to_string()))
                 .collect(),
             "Request data tabs",
-            0,
+            self.resp_tabs.active_idx(),
         )
     }
     fn render_request_tabs(&self) -> impl Widget + 'a {
@@ -183,16 +232,10 @@ impl<'a> App<'a> {
             self.req_tabs
                 .req_tabs
                 .iter()
-                .map(|t| {
-                    let (first, rest) = t.split_at();
-                    Spans::from(vec![
-                        Span::styled(first, Style::default().fg(Color::Yellow)),
-                        Span::styled(rest, Style::default().fg(Color::White)),
-                    ])
-                })
+                .map(|t| Span::from(t.to_string()))
                 .collect(),
             "Request data tabs",
-            0,
+            self.req_tabs.active_idx(),
         )
     }
     pub fn get_req_names(&self) -> Vec<String> {
@@ -202,17 +245,32 @@ impl<'a> App<'a> {
         }
         result
     }
-    pub async fn call_request(&mut self) -> Result<String, Error> {
+    pub fn new_request(&mut self) {
+        self.requests.push(ReqBundle::new());
+        self.current_request_idx = self.requests.len() - 1;
+    }
+    pub fn next_req(&mut self) {
+        self.current_request_idx += 1;
+        if self.current_request_idx >= self.requests.len() {
+            self.current_request_idx = 0;
+        }
+    }
+    pub fn pre_req(&mut self) {
+        if self.current_request_idx == 0 {
+            self.current_request_idx = self.requests.len() - 1;
+            return;
+        };
+        self.current_request_idx -= 1;
+    }
+    pub async fn call_request(&mut self) -> Result<(), Error> {
+        let current_request = &self.requests[self.current_request_idx];
         let mut addr = String::new();
         let mut params = HashMap::new();
-        let mut headers = HeaderMap::new();
+        let mut headers = HeaderMap::try_from(&self.replace_envs(current_request.handle_headers()))
+            .unwrap_or(HeaderMap::new());
         let mut body = None;
-        let current_request = &self.requests[self.current_request_idx];
         params = self.replace_envs(current_request.handle_params());
         addr = self.replace_envs(current_request.address().to_string());
-        headers = (&self.replace_envs(current_request.handle_headers()))
-            .try_into()
-            .unwrap();
         body = current_request.handle_json_body()?;
         let resp: Response;
         match current_request.verb() {
@@ -254,80 +312,25 @@ impl<'a> App<'a> {
         let current_request = &mut self.requests[self.current_request_idx];
         current_request.set_response_status_code(resp.status().as_u16() as i32);
         current_request.set_response_body(resp.text().await.map_err(|e| Error::ReqwestErr(e))?);
-        Err(Error::NoRequestErr(0))
+        Ok(())
     }
     pub fn change_request_tab(&mut self) {
-        self.req_tabs.next()
+        self.req_tabs.next();
+        self.state.push(StateItem::new(
+            self.state.last().main_windows_clone(),
+            self.req_tabs.active().to_section(),
+        ));
     }
     pub fn change_response_tab(&mut self) {
-        self.resp_tabs.next()
+        self.resp_tabs.next();
+        self.state.push(StateItem::new(
+            self.state.last().main_windows_clone(),
+            self.resp_tabs.active().to_section(),
+        ));
     }
-    //  pub fn add_to_kv(&mut self, ch: char) {
-    //      match self.req_tabs.active() {
-    //          RequestOptions::Headers(_, _) => {
-    //              self.current_request.add_to_active_header(ch);
-    //          }
-    //          RequestOptions::Params(_, _) => self.current_request.add_to_active_param(ch),
-    //          _ => (),
-    //      }
-    //  }
-    //  pub fn remove_from_kv(&mut self) {
-    //      match self.req_tabs.active() {
-    //          RequestOptions::Headers(_, _) => self.current_request.remove_from_active_header(),
-    //          RequestOptions::Params(_, _) => self.current_request.remove_from_active_param(),
-    //          _ => (),
-    //      }
-    //  }
-    //  pub fn change_active(&mut self) {
-    //      match self.req_tabs.active() {
-    //          RequestOptions::Headers(_, _) => self.current_request.change_active_header(),
-    //          RequestOptions::Params(_, _) => self.current_request.change_active_param(),
-    //          _ => (),
-    //      }
-    //  }
-    //  pub fn is_key_active(&self) -> bool {
-    //      match self.req_tabs.active() {
-    //          RequestOptions::Headers(_, _) => {
-    //              return self.current_request.is_key_active_in_header();
-    //          }
-    //          RequestOptions::Params(_, _) => {
-    //              return self.current_request.is_key_active_in_param();
-    //          }
-    //          _ => (),
-    //      }
-    //      false
-    //  }
-    //  pub fn response_headers(&self) -> Option<HashMap<String, String>> {
-    //      self.current_request.response_headers()
-    //  }
-    //  pub fn delete_selected_header(&mut self) {
-    //      self.current_request.delete_selected_header()
-    //  }
-    //  pub fn delete_selected_param(&mut self) {
-    //      self.current_request.delete_selected_param()
-    //  }
-    //  pub fn header_temp_ops(&mut self) {}
-    //  pub fn param_temp_ops(&mut self) {}
-    //   pub fn change_activity_selected_param(&mut self) {
-    //       let idx = self.temp_header_param_idx.clone();
-    //       if let Some(req) = self.current_request_as_mut() {
-    //           if let Some(params) = &mut req.params {
-    //               if idx <= params.len() - 1 {
-    //                   params[idx].2 = !params[idx].2;
-    //               }
-    //           }
-    //       }
-    //   }
-    //   pub fn change_activity_selected_header(&mut self) {
-    //       let idx = self.temp_header_param_idx.clone();
-    //       if let Some(req) = self.current_request_as_mut() {
-    //           if let Some(headers) = &mut req.headers {
-    //               if idx <= headers.len() - 1 {
-    //                   headers[idx].2 = !headers[idx].2;
-    //               }
-    //           }
-    //       }
-    //   }
+    pub fn save_request(&mut self) {
+        //self.requests.push()
+    }
     pub fn initiate_temp_envs(&mut self) {
         self.temp_envs = Some(environments::TempEnv::new(self.all_envs.clone()));
     }
@@ -483,29 +486,6 @@ impl<'a> App<'a> {
     //       if let Some(req) = &mut self.current_request_as_mut() {
     //           req.body.kind = req.body.kind.change();
     //       }
-    //   }
-    //   pub fn next_req(&mut self) {
-    //       self.current_request_idx += 1;
-    //       if let Some(req) = &self.requests {
-    //           if self.current_request_idx >= req.len() {
-    //               self.current_request_idx = 0;
-    //           }
-    //       }
-    //   }
-    //   pub fn pre_req(&mut self) {
-    //       if let Some(req) = &self.requests {
-    //           if self.current_request_idx == 0 {
-    //               self.current_request_idx = req.len() - 1;
-    //               return;
-    //           };
-    //           self.current_request_idx -= 1;
-    //       }
-    //   }
-    //   pub fn new_request(&mut self) {
-    //       if let Some(req) = &mut self.requests {
-    //           req.push(request::Request::new());
-    //           self.current_request_idx = req.len() - 1;
-    //       };
     //   }
     //   pub fn save_current_req(&mut self) -> Result<(), Error> {
     //       let mut name = String::new();
@@ -763,14 +743,14 @@ impl EnvReplacer for HashMap<String, String, RandomState> {
 }
 
 fn navigation(e: &AppEvent, s: &mut State) {
-    println!("{:?}", s);
-    let mut last_state = s.last_mut().unwrap();
+    let mut last_state = s.last();
     match e {
         NAV_UP => {
-            match *last_state {
+            match last_state.sub() {
                 HEADERS | PARAMS | BODY => {
-                    *last_state = ADDRESS;
+                    s.push(StateItem::new(s.last().main_windows().clone(), ADDRESS));
                 }
+                REQUESTS => s.push(StateItem::new(s.last().main_windows().clone(), VERB)),
                 _ => (),
                 //Windows::Address => self.selected_window = Windows::ReqNames,
                 //Windows::Response => self.selected_window = Windows::RequestData,
@@ -781,8 +761,11 @@ fn navigation(e: &AppEvent, s: &mut State) {
             }
         }
         NAV_DOWN => {
-            match *last_state {
-                HEADERS => {}
+            match last_state.sub() {
+                REQUESTS => {
+                    s.push(StateItem::new(s.last().main_windows().clone(), VERB));
+                }
+                VERB | ADDRESS => s.push(StateItem::new(s.last().main_windows().clone(), BODY)),
                 _ => (),
                 //Windows::Address => self.selected_window = Windows::RequestData,
                 //Windows::Response => self.selected_window = Windows::ReqNames,
@@ -793,8 +776,8 @@ fn navigation(e: &AppEvent, s: &mut State) {
             }
         }
         NAV_LEFT => {
-            match *last_state {
-                HEADERS => {}
+            match last_state.sub() {
+                ADDRESS => s.push(StateItem::new(s.last().main_windows().clone(), VERB)),
                 _ => (),
                 //Windows::Address => (),
                 //Windows::Response => (),
@@ -805,8 +788,8 @@ fn navigation(e: &AppEvent, s: &mut State) {
             }
         }
         NAV_RIGHT => {
-            match *last_state {
-                HEADERS => {}
+            match last_state.sub() {
+                VERB => s.push(StateItem::new(s.last().main_windows().clone(), ADDRESS)),
                 _ => (),
                 //Windows::Address => self.selected_window = Windows::EnvSelection,
                 //Windows::Response => (),

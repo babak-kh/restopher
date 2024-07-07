@@ -102,6 +102,7 @@ impl Request {
             response: None,
         }
     }
+    // headers
     pub fn handle_headers(&self) -> HashMap<String, String> {
         self.headers
             .clone()
@@ -111,17 +112,28 @@ impl Request {
             .map(|item| (item.0.clone(), item.1.clone()))
             .collect::<HashMap<String, String>>()
     }
-    pub fn handle_params(&self) -> HashMap<String, String> {
-        let h = self
-            .params
-            .clone()
-            .unwrap_or(vec![("".to_string(), "".to_string(), false)])
-            .iter()
-            .filter(|item| item.2)
-            .map(|item| (item.0.clone(), item.1.clone()))
-            .collect::<HashMap<String, String>>();
-        h
+    pub fn add_to_header(&mut self, key: String, value: String, active: bool) {
+        if let Some(ref mut h) = self.headers {
+            h.push((key, value, active));
+        } else {
+            self.headers = Some(vec![(key, value, active)])
+        }
     }
+    pub fn delete_header(&mut self, idx: usize) {
+        if let Some(h) = &mut self.headers {
+            h.remove(idx);
+            if h.len() == 0 {
+                self.params = None;
+            }
+        }
+    }
+    pub fn active_deactive_header(&mut self, idx: usize) {
+        if let Some(h) = &mut self.headers {
+            h[idx].2 = !h[idx].2;
+        }
+    }
+
+    // body
     pub fn handle_json_body(&self) -> Result<Option<serde_json::Value>, crate::app::Error> {
         match &self.body.payload {
             Some(data) => {
@@ -147,29 +159,38 @@ impl Request {
             None => (),
         }
     }
-    pub fn add_to_header(&mut self, key: String, value: String, active: bool) {
-        if let Some(ref mut h) = self.headers {
-            h.push((key, value, active));
-        } else {
-            self.headers = Some(vec![(key, value, active)])
-        }
-    }
+
+    // params
     pub fn add_to_param(&mut self, key: String, value: String, active: bool) {
         if let Some(ref mut h) = self.params {
             h.push((key, value, active));
         } else {
-            self.headers = Some(vec![(key, value, active)])
-        }
-    }
-    pub fn delete_header(&mut self, idx: usize) {
-        if let Some(h) = &mut self.headers {
-            h.remove(idx);
+            self.params = Some(vec![(key, value, active)])
         }
     }
     pub fn delete_param(&mut self, idx: usize) {
         if let Some(h) = &mut self.params {
             h.remove(idx);
+            if h.len() == 0 {
+                self.params = None;
+            }
         }
+    }
+    pub fn active_deactive_param(&mut self, idx: usize) {
+        if let Some(h) = &mut self.params {
+            h[idx].2 = !h[idx].2;
+        }
+    }
+    pub fn handle_params(&self) -> HashMap<String, String> {
+        let h = self
+            .params
+            .clone()
+            .unwrap_or(vec![("".to_string(), "".to_string(), false)])
+            .iter()
+            .filter(|item| item.2)
+            .map(|item| (item.0.clone(), item.1.clone()))
+            .collect::<HashMap<String, String>>();
+        h
     }
 }
 

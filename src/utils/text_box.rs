@@ -3,32 +3,36 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TextBox {
     buffer: String,
-    CursorPos: usize,
+    cursor_pos: usize,
 }
 impl TextBox {
     pub fn new() -> Self {
         TextBox {
             buffer: String::from(""),
-            CursorPos: 0,
+            cursor_pos: 0,
         }
     }
     pub fn to_string(&self) -> String {
         self.buffer.clone()
     }
     pub fn push(&mut self, c: char) {
-        self.buffer.insert(self.CursorPos, c);
-        self.CursorPos += 1;
+        self.buffer.insert(self.cursor_pos, c);
+        self.cursor_pos += 1;
     }
     pub fn pop(&mut self) {
-        self.buffer.remove(self.CursorPos);
+        if self.buffer.len() == 0 {
+            return;
+        }
+        self.cursor_pos -= 1;
+        self.buffer.remove(self.cursor_pos);
     }
     pub fn cursor_pre(&mut self) {
-        self.CursorPos -= 1;
+        self.cursor_pos -= 1;
     }
     pub fn cursor_next(&mut self) {
-        self.CursorPos += 1;
+        self.cursor_pos += 1;
     }
     pub fn cursor_position(&self) -> usize {
-        self.CursorPos
+        self.cursor_pos
     }
 }

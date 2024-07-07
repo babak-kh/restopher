@@ -1,4 +1,4 @@
-use tui::{layout::Rect, widgets::{Widget, Paragraph, Block}};
+use ratatui::{layout::Rect, widgets::{Widget, Paragraph, Block}};
 
 use crate::components::default_block;
 

@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use reqwest::header::{self, HeaderMap};
-use tui::{
+use ratatui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::Spans,
+    text::Span,
     widgets::{Block, Cell, Paragraph, Row, Table, TableState},
     Frame,
 };
@@ -27,7 +27,7 @@ use super::{
 #[derive(Debug)]
 pub struct ReqBundle {
     request: super::request::Request,
-    view: super::view::ReqView,
+    pub view: super::view::ReqView,
     response: Option<Response>,
 }
 
@@ -119,6 +119,12 @@ impl ReqBundle {
     pub fn headers(&self) -> Option<Vec<(String, String, bool)>> {
         self.request.headers.clone()
     }
+    pub fn headers_len(&self) -> usize {
+        if let Some(headers) = &self.request.headers {
+            return headers.len();
+        }
+        0
+    }
     pub fn handle_headers(&self) -> HashMap<String, String> {
         self.request.handle_headers()
     }
@@ -128,9 +134,14 @@ impl ReqBundle {
     pub fn handle_json_body(&self) -> Result<Option<serde_json::Value>, crate::app::Error> {
         self.request.handle_json_body()
     }
-
     pub fn params(&self) -> Option<Vec<(String, String, bool)>> {
         self.request.params.clone()
+    }
+    pub fn params_len(&self) -> usize {
+        if let Some(params) = &self.request.params {
+            return params.len();
+        }
+        0
     }
     pub fn set_response_headers(&mut self, h: &HeaderMap) -> Result<(), crate::app::Error> {
         let headers = handle_response_headers(h)?;
@@ -184,23 +195,40 @@ impl ReqBundle {
     pub fn add_to_active_header(&mut self, ch: char) {
         self.view.add_to_active_header(ch)
     }
-    pub fn add_to_active_param(&mut self, ch: char) {
-        self.view.add_to_active_header(ch)
+    pub fn delete_selected_header(&mut self) {
+        let idx = self.view.header_idx();
+        self.request.delete_header(idx)
+    }
+    pub fn active_deactive_header(&mut self) {
+        let idx = self.view.header_idx();
+        self.request.active_deactive_header(idx)
     }
     pub fn remove_from_active_header(&mut self) {
         self.view.remove_from_active_header()
     }
-    pub fn remove_from_active_param(&mut self) {
-        self.view.remove_from_active_param()
-    }
     pub fn change_active_header(&mut self) {
         self.view.change_active_header()
     }
-    pub fn change_active_param(&mut self) {
-        self.view.change_active_param()
-    }
     pub fn is_key_active_in_header(&self) -> bool {
         self.view.is_key_active_in_header()
+    }
+
+    pub fn delete_selected_param(&mut self) {
+        let idx = self.view.param_idx();
+        self.request.delete_param(idx)
+    }
+    pub fn active_deactive_param(&mut self) {
+        let idx = self.view.param_idx();
+        self.request.active_deactive_param(idx)
+    }
+    pub fn add_to_active_param(&mut self, ch: char) {
+        self.view.add_to_active_header(ch)
+    }
+    pub fn remove_from_active_param(&mut self) {
+        self.view.remove_from_active_param()
+    }
+    pub fn change_active_param(&mut self) {
+        self.view.change_active_param()
     }
     pub fn is_key_active_in_param(&self) -> bool {
         self.view.is_key_active_in_param()
@@ -211,47 +239,38 @@ impl ReqBundle {
         }
         None
     }
-    pub fn delete_selected_header(&mut self) {
-        let idx = self.view.header_idx();
-        self.request.delete_header(idx)
-    }
-    pub fn delete_selected_param(&mut self) {
-        let idx = self.view.param_idx();
-        self.request.delete_param(idx)
-    }
-    pub fn render<B: Backend>(&self, f: &mut Frame<B>, r: layout::RequestsLayout, state: &State) {
+    pub fn render(&self, f: &mut Frame, r: layout::RequestsLayout, state: &State) {
         let verb_address_rect = Layout::default()
             .direction(Direction::Horizontal)
             .constraints(vec![Constraint::Percentage(20), Constraint::Percentage(80)])
             .split(r.verb_address);
         let v = Paragraph::new(self.request.verb.to_string());
         let mut vb = default_block("verb");
-        if *state.last().unwrap() == VERB {
-            vb = to_selected(vb)
+        if state.last().sub() == VERB {
+            vb = to_selected(vb);
         }
         let addr = Paragraph::new(self.request.address.to_string());
         let mut ab = default_block("address");
-        if *state.last().unwrap() == ADDRESS {
-            ab = to_selected(ab)
+        if state.last().sub() == ADDRESS {
+            ab = to_selected(ab);
         }
         f.render_widget(v.block(vb), verb_address_rect[0]);
         f.render_widget(addr.block(ab), verb_address_rect[1]);
-        self.handle_request_data(f, r, state)
+        self.handle_request_data(f, r.request_data, state);
+        match self.response {
+            Some(ref resp) => resp.render(f, r.response_data, state),
+            None => f.render_widget(default_block("Response"), r.response_data),
+        }
     }
-    fn handle_request_data<B: Backend>(
-        &self,
-        f: &mut Frame<B>,
-        r: layout::RequestsLayout,
-        state: &State,
-    ) {
-        match state[state.len() - 1] {
-            BODY => (),
-            PARAMS => self.render_params(f, state, r.request_data),
-            HEADERS => self.render_headers(f, state, r.request_data),
+    fn handle_request_data(&self, f: &mut Frame, r: Rect, state: &State) {
+        match state.last().sub() {
+            BODY => self.render_body(f, state, r),
+            PARAMS => self.render_params(f, state, r),
+            HEADERS => self.render_headers(f, state, r),
             _ => (),
         }
     }
-    fn render_params<B: Backend>(&self, f: &mut Frame<B>, state: &State, mut rect: Rect) {
+    fn render_params(&self, f: &mut Frame, state: &State, mut rect: Rect) {
         if self.view.has_new_param() {
             let parm_data = Layout::default()
                 .direction(Direction::Vertical)
@@ -266,10 +285,10 @@ impl ReqBundle {
                 value_block = to_selected(value_block);
             }
             let k = Paragraph::new(self.view.current_set_param().0)
-                .wrap(tui::widgets::Wrap { trim: true })
+                .wrap(ratatui::widgets::Wrap { trim: true })
                 .block(key_block);
             let v = Paragraph::new(self.view.current_set_param().1)
-                .wrap(tui::widgets::Wrap { trim: true })
+                .wrap(ratatui::widgets::Wrap { trim: true })
                 .block(value_block);
             let h = Layout::default()
                 .direction(Direction::Horizontal)
@@ -295,7 +314,7 @@ impl ReqBundle {
                 };
                 Row::new(cells).height(height as u16).bottom_margin(0)
             });
-            let t = Table::new(rows)
+            let t = Table::new(rows, [Constraint::Length(10), Constraint::Length(10)])
                 .block(default_block("params"))
                 .highlight_style(selected_style)
                 .highlight_symbol(">> ")
@@ -305,16 +324,19 @@ impl ReqBundle {
                     Constraint::Min(10),
                 ]);
             let state = &mut TableState::default();
-            state.select(Some(0));
+            state.select(Some(self.view.param_idx()));
             f.render_stateful_widget(t, rect, state);
         } else {
-            f.render_widget(default_block("Body"), rect)
+            f.render_widget(default_block("Params"), rect)
         }
     }
-
-    fn render_body<B: Backend>(&self, f: &mut Frame<B>, rect: Rect) {}
-
-    fn render_headers<B: Backend>(&self, f: &mut Frame<B>, state: &State, mut rect: Rect) {
+    fn render_body(&self, f: &mut Frame, state: &State, rect: Rect) {
+        let b = Paragraph::new("bod will be here".to_string())
+            .block(default_block("Body"))
+            .wrap(ratatui::widgets::Wrap { trim: true });
+        f.render_widget(b, rect)
+    }
+    fn render_headers(&self, f: &mut Frame, state: &State, mut rect: Rect) {
         if self.view.has_new_header() {
             let head_data = Layout::default()
                 .direction(Direction::Vertical)
@@ -329,10 +351,10 @@ impl ReqBundle {
                 value_block = to_selected(value_block);
             }
             let k = Paragraph::new(self.view.current_set_header().0)
-                .wrap(tui::widgets::Wrap { trim: true })
+                .wrap(ratatui::widgets::Wrap { trim: true })
                 .block(key_block);
             let v = Paragraph::new(self.view.current_set_header().1)
-                .wrap(tui::widgets::Wrap { trim: true })
+                .wrap(ratatui::widgets::Wrap { trim: true })
                 .block(value_block);
             let h = Layout::default()
                 .direction(Direction::Horizontal)
@@ -342,9 +364,9 @@ impl ReqBundle {
             f.render_widget(v, h[1]);
         }
         let mut b = default_block("Headers");
-        if *state.last().unwrap() == HEADERS {
-            b = to_selected(b)
-        }
+        //if *state.last() == HEADERS {
+        //    b = to_selected(b)
+        //}
         if let Some(headers) = &self.request.headers {
             let selected_style = Style::default().add_modifier(Modifier::BOLD);
             let normal_style = Style::default().bg(Color::Blue);
@@ -362,7 +384,7 @@ impl ReqBundle {
                 };
                 Row::new(cells).height(height as u16).bottom_margin(0)
             });
-            let t = Table::new(rows)
+            let t = Table::new(rows, [Constraint::Length(10), Constraint::Length(10)])
                 .block(b)
                 .highlight_style(selected_style)
                 .highlight_symbol(">> ")
@@ -372,7 +394,7 @@ impl ReqBundle {
                     Constraint::Min(10),
                 ]);
             let state = &mut TableState::default();
-            state.select(Some(0));
+            state.select(Some(self.view.header_idx()));
             f.render_stateful_widget(t, rect, state);
         } else {
             f.render_widget(b, rect)
