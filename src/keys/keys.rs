@@ -1,7 +1,5 @@
 use crossterm::event::{self, KeyCode, KeyEvent, KeyModifiers};
 
-use crate::utils::app_state::State;
-
 #[derive(PartialEq, Eq, Debug)]
 pub enum Modifier {
     Control,
@@ -43,7 +41,7 @@ pub const NAV_RIGHT: &Event = &Event {
     key: Key::Char('l'),
 };
 
-pub fn transform(key: KeyEvent, state: &mut State) -> Event {
+pub fn transform(key: KeyEvent) -> Event {
     let mut modi: Option<Modifier> = None;
     let k: Key;
 

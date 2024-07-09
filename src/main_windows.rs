@@ -1,7 +1,6 @@
 use crate::keys::keys::{Event, Key, Modifier};
-use crate::utils::app_state::State;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum MainWindows {
     Main,
     Environments,
@@ -20,8 +19,8 @@ pub enum ChangeEvent {
     NoChange,
 }
 
-pub fn key_registry(event: &Event, state: &State) -> ChangeEvent {
-    match state.last().main_windows() {
+pub fn key_registry(event: &Event, main_window: &MainWindows) -> ChangeEvent {
+    match main_window {
         MainWindows::Main => match event {
             Event {
                 modifier: Some(Modifier::Control),

@@ -1,20 +1,27 @@
+use super::Request;
 use crate::components::{
-    self, default_block, tabs, RequestController, ADDRESS, BODY, HEADERS, PARAMS, VERB,
+    self, default_block, tabs, AddressBarComponent, RequestTabComponent, ResponseTabComponent,
 };
 use crate::keys::keys::{
     is_navigation, is_quit, transform, Event as AppEvent, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP,
 };
 use crate::main_windows::key_registry;
-use crate::utils::app_state::{Section, State, StateItem, REQUESTS};
+use crate::request::HttpVerb;
 use crate::{
-    components::{error_popup, HttpVerb, ReqBundle, ReqTabs, RespTabs},
+    components::error_popup,
     environments::{Environment, KV},
 };
 use crate::{environments, layout};
 use crossterm::event::{self, Event, KeyEvent};
-use ratatui::{backend::Backend, layout::{Constraint, Direction, Layout}};
-use ratatui::{style::{Color, Style}, text::Span};
 use ratatui::widgets::{StatefulWidget, Widget};
+use ratatui::{
+    backend::Backend,
+    layout::{Constraint, Direction, Layout},
+};
+use ratatui::{
+    style::{Color, Style},
+    text::Span,
+};
 use ratatui::{widgets, Frame, Terminal};
 use regex::Regex;
 use reqwest::header::HeaderMap;
@@ -61,16 +68,16 @@ impl Error {
         }
     }
 }
-pub struct App<'a> {
-    state: State,
+pub struct App {
     client: reqwest::Client,
-    req_controller: RequestController,
+    requests: Vec<super::request::Request>,
+    main_window: crate::main_windows::MainWindows,
+
+    req_tabs: RequestTabComponent<'static>,
+    resp_tabs: ResponseTabComponent,
+    address_bar: AddressBarComponent,
 
     current_request_idx: usize,
-    requests: Vec<ReqBundle>,
-    temp_header_param_idx: usize,
-    req_tabs: ReqTabs<'a>,
-    resp_tabs: RespTabs<'a>,
     error_pop_up: (bool, Option<Error>),
     show_environments: bool,
     all_envs: Vec<Environment>,
@@ -78,14 +85,11 @@ pub struct App<'a> {
     current_env_idx: Option<usize>, // index of active environments
     data_directory: String,
     collections: Option<StatefulTree>,
-    has_new_req_name: bool,
-    has_new_collection: bool,
-    collection_or_name: String,
     regex_replacer: regex::Regex,
 }
-impl<'a> App<'a> {
+
+impl App {
     pub fn new() -> Self {
-        let rc = RequestController::new();
         let all_envs = match fs::File::open(format!("{}/{}", DATA_DIRECTORY, ENV_PATH)) {
             Ok(f) => {
                 let mut reader = BufReader::new(f);
@@ -101,17 +105,12 @@ impl<'a> App<'a> {
                 Vec::new()
             }
         };
-        let mut requests = vec![ReqBundle::new()];
+        let mut requests = vec![super::request::Request::new()];
         App {
-            state: State::default(),
             client: reqwest::Client::new(),
-            req_controller: rc,
             requests,
             current_request_idx: 0,
-            req_tabs: ReqTabs::new(),
-            resp_tabs: RespTabs::new(),
             error_pop_up: (false, None),
-            temp_header_param_idx: 0,
             current_env_idx: None,
             show_environments: false,
             all_envs,
@@ -124,30 +123,32 @@ impl<'a> App<'a> {
             ))
             .unwrap(),
             collections: None,
-            has_new_collection: false,
-            has_new_req_name: false,
-            collection_or_name: "".to_string(),
+            main_window: crate::main_windows::MainWindows::Main,
+
+            req_tabs: RequestTabComponent::new(),
+            resp_tabs: ResponseTabComponent::new(),
+            address_bar: AddressBarComponent::new(),
         }
     }
     pub async fn run<B: Backend>(&mut self, term: &mut Terminal<B>) -> () {
         loop {
             term.draw(|f| self.ui(f)).unwrap();
             if let Event::Key(key) = event::read().unwrap() {
-                let even = transform(key, &mut self.state);
+                let even = transform(key);
                 if is_quit(&even) {
-                    return;
+                    panic!("quit");
                 }
                 if is_navigation(&even) {
-                    navigation(&even, &mut self.state);
+                    self.navigation(&even);
                     continue;
                 }
-                match key_registry(&even, &mut self.state) {
+                match key_registry(&even, &self.main_window) {
                     crate::main_windows::ChangeEvent::ChangeRequestTab => {
-                        self.change_request_tab();
+                        //    self.change_request_tab();
                         continue;
                     }
                     crate::main_windows::ChangeEvent::ChangeResponseTab => {
-                        self.change_response_tab();
+                        //    self.change_response_tab();
                         continue;
                     }
                     crate::main_windows::ChangeEvent::SaveRequest => {
@@ -177,21 +178,12 @@ impl<'a> App<'a> {
                     }
                     crate::main_windows::ChangeEvent::NoChange => (),
                 }
-                match *self.state.last().main_windows() {
-                    crate::main_windows::MainWindows::Main => {
-                        self.req_controller.handle(
-                            even,
-                            &mut self.requests[self.current_request_idx],
-                            &self.state,
-                        );
-                    }
-                    _ => (),
-                }
             }
         }
     }
     fn ui(&mut self, f: &mut Frame) {
         let lay = layout::AppLayout::new(f.size());
+
         let t = tabs(
             self.get_req_names()
                 .into_iter()
@@ -200,15 +192,12 @@ impl<'a> App<'a> {
             "requests",
             self.current_request_idx,
         )
-        .block(default_block("requests"));
-        RequestController::render(
-            f,
-            &self.requests[self.current_request_idx],
-            lay.request,
-            &self.state,
-        );
-        f.render_widget(self.render_request_tabs(), lay.req_tabs);
-        f.render_widget(self.render_response_tabs(), lay.resp_tabs);
+        .block(default_block("requests", false));
+
+        self.req_tabs
+            .draw(f, &self.requests[self.current_request_idx], lay.request);
+        self.resp_tabs
+            .draw(f, &self.requests[self.current_request_idx], lay.response);
         f.render_widget(t, lay.requests);
         if self.error_pop_up.0 {
             error_popup(f, &self.error_pop_up.1.as_ref().unwrap(), f.size());
@@ -216,28 +205,6 @@ impl<'a> App<'a> {
         }
     }
 
-    fn render_response_tabs(&self) -> impl Widget + 'a {
-        components::tabs(
-            self.resp_tabs
-                .resp_tabs
-                .iter()
-                .map(|t| Span::from(t.to_string()))
-                .collect(),
-            "Request data tabs",
-            self.resp_tabs.active_idx(),
-        )
-    }
-    fn render_request_tabs(&self) -> impl Widget + 'a {
-        components::tabs(
-            self.req_tabs
-                .req_tabs
-                .iter()
-                .map(|t| Span::from(t.to_string()))
-                .collect(),
-            "Request data tabs",
-            self.req_tabs.active_idx(),
-        )
-    }
     pub fn get_req_names(&self) -> Vec<String> {
         let mut result = Vec::new();
         for r in &self.requests {
@@ -246,7 +213,7 @@ impl<'a> App<'a> {
         result
     }
     pub fn new_request(&mut self) {
-        self.requests.push(ReqBundle::new());
+        self.requests.push(super::Request::new());
         self.current_request_idx = self.requests.len() - 1;
     }
     pub fn next_req(&mut self) {
@@ -314,20 +281,12 @@ impl<'a> App<'a> {
         current_request.set_response_body(resp.text().await.map_err(|e| Error::ReqwestErr(e))?);
         Ok(())
     }
-    pub fn change_request_tab(&mut self) {
-        self.req_tabs.next();
-        self.state.push(StateItem::new(
-            self.state.last().main_windows_clone(),
-            self.req_tabs.active().to_section(),
-        ));
-    }
-    pub fn change_response_tab(&mut self) {
-        self.resp_tabs.next();
-        self.state.push(StateItem::new(
-            self.state.last().main_windows_clone(),
-            self.resp_tabs.active().to_section(),
-        ));
-    }
+    //pub fn change_request_tab(&mut self) {
+    //    self.state.next_request_tab();
+    //}
+    //pub fn change_response_tab(&mut self) {
+    //    self.state.next_response_tab();
+    //}
     pub fn save_request(&mut self) {
         //self.requests.push()
     }
@@ -535,9 +494,9 @@ impl<'a> App<'a> {
             current_state,
         ));
     }
-    pub fn new_collection(&mut self) {
-        self.has_new_collection = true
-    }
+    //pub fn new_collection(&mut self) {
+    //    self.has_new_collection = true
+    //}
     pub fn set_collections(&mut self) {
         let cols = self.create_tree(
             Node::new(
@@ -627,21 +586,21 @@ impl<'a> App<'a> {
     //            }
     //        }
     //    }
-    pub fn add_to_collection_or_name_string(&mut self, x: char) {
-        if self.has_new_collection || self.has_new_req_name {
-            self.collection_or_name.push(x);
-        }
-    }
-    pub fn remove_from_collection_or_name_string(&mut self) {
-        if self.has_new_collection || self.has_new_req_name {
-            self.collection_or_name.pop();
-        }
-    }
-    pub fn close_new_req_or_collection(&mut self) {
-        self.has_new_req_name = false;
-        self.has_new_collection = false;
-        self.collection_or_name = "".to_string();
-    }
+    //pub fn add_to_collection_or_name_string(&mut self, x: char) {
+    //    if self.has_new_collection || self.has_new_req_name {
+    //        self.collection_or_name.push(x);
+    //    }
+    //}
+    //pub fn remove_from_collection_or_name_string(&mut self) {
+    //    if self.has_new_collection || self.has_new_req_name {
+    //        self.collection_or_name.pop();
+    //    }
+    //}
+    //pub fn close_new_req_or_collection(&mut self) {
+    //    self.has_new_req_name = false;
+    //    self.has_new_collection = false;
+    //    self.collection_or_name = "".to_string();
+    //}
     //    pub fn current_req_has_name(&self) -> bool {
     //        if let Some(req) = self.current_request() {
     //            if req.name == "".to_string() {
@@ -670,6 +629,21 @@ impl<'a> App<'a> {
             }
         }
         Some(result)
+    }
+    fn navigation(&mut self, e: &AppEvent) {
+        match e {
+            NAV_UP => {
+                if self.req_tabs.is_active() {
+                    self.req_tabs.lose_focus();
+                } else if self.resp_tabs.is_active() {
+                    self.resp_tabs.lose_focus();
+                }
+            }
+            NAV_DOWN => (),
+            NAV_LEFT => (),
+            NAV_RIGHT => (),
+            _ => (),
+        }
     }
 }
 trait EnvReplacer {
@@ -740,65 +714,4 @@ impl EnvReplacer for HashMap<String, String, RandomState> {
         }
         result
     }
-}
-
-fn navigation(e: &AppEvent, s: &mut State) {
-    let mut last_state = s.last();
-    match e {
-        NAV_UP => {
-            match last_state.sub() {
-                HEADERS | PARAMS | BODY => {
-                    s.push(StateItem::new(s.last().main_windows().clone(), ADDRESS));
-                }
-                REQUESTS => s.push(StateItem::new(s.last().main_windows().clone(), VERB)),
-                _ => (),
-                //Windows::Address => self.selected_window = Windows::ReqNames,
-                //Windows::Response => self.selected_window = Windows::RequestData,
-                //Windows::Verb => self.selected_window = Windows::ReqNames,
-                //Windows::RequestData => self.selected_window = Windows::Address,
-                //Windows::EnvSelection => self.selected_window = Windows::ReqNames,
-                //Windows::ReqNames => self.selected_window = Windows::Response,
-            }
-        }
-        NAV_DOWN => {
-            match last_state.sub() {
-                REQUESTS => {
-                    s.push(StateItem::new(s.last().main_windows().clone(), VERB));
-                }
-                VERB | ADDRESS => s.push(StateItem::new(s.last().main_windows().clone(), BODY)),
-                _ => (),
-                //Windows::Address => self.selected_window = Windows::RequestData,
-                //Windows::Response => self.selected_window = Windows::ReqNames,
-                //Windows::Verb => self.selected_window = Windows::RequestData,
-                //Windows::RequestData => self.selected_window = Windows::Response,
-                //Windows::EnvSelection => self.selected_window = Windows::RequestData,
-                //Windows::ReqNames => self.selected_window = Windows::Address,
-            }
-        }
-        NAV_LEFT => {
-            match last_state.sub() {
-                ADDRESS => s.push(StateItem::new(s.last().main_windows().clone(), VERB)),
-                _ => (),
-                //Windows::Address => (),
-                //Windows::Response => (),
-                //Windows::Verb => self.selected_window = Windows::EnvSelection,
-                //Windows::RequestData => (),
-                //Windows::EnvSelection => self.selected_window = Windows::Address,
-                //Windows::ReqNames => (),
-            }
-        }
-        NAV_RIGHT => {
-            match last_state.sub() {
-                VERB => s.push(StateItem::new(s.last().main_windows().clone(), ADDRESS)),
-                _ => (),
-                //Windows::Address => self.selected_window = Windows::EnvSelection,
-                //Windows::Response => (),
-                //Windows::Verb => (),
-                //Windows::RequestData => (),
-                //Windows::EnvSelection => self.selected_window = Windows::Verb,
-                //Windows::ReqNames => (),
-            }
-        }
-        _ => (),
-    };
 }

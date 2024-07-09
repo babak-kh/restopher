@@ -1,6 +1,3 @@
-use crate::components::request::{RESPONSE_BODY, RESPONSE_HEADERS};
-use crate::utils::app_state::Section;
-
 #[derive(Debug)]
 pub enum ResponseOptions<'a> {
     Body(usize, &'a str),
@@ -10,12 +7,6 @@ impl<'a> ResponseOptions<'a> {
     pub fn split_at(&self) -> (&str, &str) {
         match self {
             ResponseOptions::Headers(_, name) | ResponseOptions::Body(_, name) => name.split_at(1),
-        }
-    }
-    pub fn to_section(&self) -> Section {
-        match self {
-            ResponseOptions::Headers(_, _) => RESPONSE_HEADERS,
-            ResponseOptions::Body(_, _) => RESPONSE_BODY,
         }
     }
     pub fn to_string(&self) -> String {
@@ -28,7 +19,7 @@ impl<'a> ResponseOptions<'a> {
 #[derive(Debug)]
 pub struct RespTabs<'a> {
     pub resp_tabs: Vec<&'a ResponseOptions<'a>>,
-    selected_idx: usize,
+    state: usize,
 }
 impl<'a> RespTabs<'a> {
     pub fn new() -> Self {
@@ -37,21 +28,21 @@ impl<'a> RespTabs<'a> {
             &ResponseOptions::Body(1, "Body"),
         ];
         RespTabs {
-            resp_tabs: resp_tabs,
-            selected_idx: 0,
+            resp_tabs,
+            state: 0,
         }
     }
     pub fn next(&mut self) {
-        if self.selected_idx == self.resp_tabs.len() - 1 {
-            self.selected_idx = 0;
+        if self.state == self.resp_tabs.len() - 1 {
+            self.state = 0;
             return;
         }
-        self.selected_idx += 1;
+        self.state += 1;
     }
     pub fn active(&self) -> &ResponseOptions {
-        self.resp_tabs[self.selected_idx]
+        self.resp_tabs[self.state]
     }
     pub fn active_idx(&self) -> usize {
-        self.selected_idx
+        self.state
     }
 }

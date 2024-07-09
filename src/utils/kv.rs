@@ -1,11 +1,12 @@
 use super::text_box::TextBox;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct KVElement {
     text: TextBox,
     active: bool,
 }
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct KV {
     key: KVElement,
     value: KVElement,

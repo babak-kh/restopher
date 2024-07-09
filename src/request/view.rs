@@ -1,11 +1,12 @@
 use crate::utils::kv::KV;
+use serde::{Deserialize, Serialize};
 
 pub enum IndexOperation {
     Increase(usize),
     Decrease(usize),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ReqView {
     new_param: Option<KV>,
     new_header: Option<KV>,
