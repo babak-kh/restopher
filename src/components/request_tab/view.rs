@@ -8,4 +8,5 @@ pub enum Focus {
 
     Header(usize),
     Param(usize),
+    Body,
 }

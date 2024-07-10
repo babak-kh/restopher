@@ -18,20 +18,23 @@ use view::Focus;
 
 pub struct ResponseTabComponent {
     focus: Focus,
-    is_active: bool,
+    is_focused: bool,
     resp_tabs: response_tab::RespTabs<'static>,
 }
 
 impl ResponseTabComponent {
-    pub fn is_active(&self) -> bool {
-        self.is_active
+    pub fn is_focused(&self) -> bool {
+        self.is_focused
     }
     pub fn new() -> Self {
         ResponseTabComponent {
             focus: Focus::None,
-            is_active: false,
+            is_focused: false,
             resp_tabs: response_tab::RespTabs::new(),
         }
+    }
+    pub fn update_inner_focus(&mut self) {
+        self.resp_tabs.next();
     }
     pub fn update(&self, req: &mut Request, event: &Event) {
         match &self.focus {
@@ -41,10 +44,10 @@ impl ResponseTabComponent {
         }
     }
     pub fn lose_focus(&mut self) {
-        self.is_active = false;
+        self.is_focused = false;
     }
     pub fn gain_focus(&mut self) {
-        self.is_active = true;
+        self.is_focused = true;
     }
     pub fn draw(&self, f: &mut Frame, req: &Request, rect: Rect) {
         let chunks = Layout::default()
@@ -58,18 +61,18 @@ impl ResponseTabComponent {
                     .iter()
                     .map(|t| Span::from(t.to_string()))
                     .collect(),
-                "Request data tabs",
+                "response data tabs",
                 self.resp_tabs.active_idx(),
             ),
             chunks[0],
         );
         match self.resp_tabs.active() {
             ResponseOptions::Headers(_, _) => f.render_widget(
-                Paragraph::new("Resp Headers").block(default_block("headers", self.is_active)),
+                Paragraph::new("Resp Headers").block(default_block("headers", self.is_focused)),
                 chunks[1],
             ),
             ResponseOptions::Body(_, _) => f.render_widget(
-                Paragraph::new("Resp body").block(default_block("resp body", self.is_active)),
+                Paragraph::new("Resp body").block(default_block("resp body", self.is_focused)),
                 chunks[1],
             ),
         }

@@ -24,6 +24,6 @@ pub fn tabs<'a>(titles: Vec<Span<'a>>, name: &'a str, selected: usize) -> Tabs<'
         .highlight_style(
             Style::default()
                 .add_modifier(Modifier::BOLD)
-                .bg(Color::Black),
+                .bg(Color::Yellow),
         )
 }

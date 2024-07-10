@@ -1,6 +1,7 @@
 use super::Request;
 use crate::components::{
-    self, default_block, tabs, AddressBarComponent, RequestTabComponent, ResponseTabComponent,
+    self, default_block, tabs, AddressBarComponent, RequestTabComponent, RequestsComponent,
+    ResponseTabComponent,
 };
 use crate::keys::keys::{
     is_navigation, is_quit, transform, Event as AppEvent, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP,
@@ -76,6 +77,7 @@ pub struct App {
     req_tabs: RequestTabComponent<'static>,
     resp_tabs: ResponseTabComponent,
     address_bar: AddressBarComponent,
+    requests_component: RequestsComponent,
 
     current_request_idx: usize,
     error_pop_up: (bool, Option<Error>),
@@ -106,6 +108,7 @@ impl App {
             }
         };
         let mut requests = vec![super::request::Request::new()];
+        let names = requests.iter().map(|r| r.name()).collect();
         App {
             client: reqwest::Client::new(),
             requests,
@@ -128,6 +131,7 @@ impl App {
             req_tabs: RequestTabComponent::new(),
             resp_tabs: ResponseTabComponent::new(),
             address_bar: AddressBarComponent::new(),
+            requests_component: RequestsComponent::new(names, 0),
         }
     }
     pub async fn run<B: Backend>(&mut self, term: &mut Terminal<B>) -> () {
@@ -144,11 +148,11 @@ impl App {
                 }
                 match key_registry(&even, &self.main_window) {
                     crate::main_windows::ChangeEvent::ChangeRequestTab => {
-                        //    self.change_request_tab();
+                        self.req_tabs.update_inner_focus();
                         continue;
                     }
                     crate::main_windows::ChangeEvent::ChangeResponseTab => {
-                        //    self.change_response_tab();
+                        self.resp_tabs.update_inner_focus();
                         continue;
                     }
                     crate::main_windows::ChangeEvent::SaveRequest => {
@@ -178,6 +182,26 @@ impl App {
                     }
                     crate::main_windows::ChangeEvent::NoChange => (),
                 }
+                if self.req_tabs.is_focused() {
+                    println!("req tabs");
+                    self.req_tabs
+                        .update(&mut self.requests[self.current_request_idx], even);
+                    continue;
+                }
+                if self.address_bar.is_focused() {
+                    self.address_bar
+                        .update(&mut self.requests[self.current_request_idx], &even);
+                    continue;
+                }
+                if self.resp_tabs.is_focused() {
+                    self.resp_tabs
+                        .update(&mut self.requests[self.current_request_idx], &even);
+                    continue;
+                }
+                if self.requests_component.is_focused() {
+                    self.requests_component.update();
+                    continue;
+                }
             }
         }
     }
@@ -198,7 +222,12 @@ impl App {
             .draw(f, &self.requests[self.current_request_idx], lay.request);
         self.resp_tabs
             .draw(f, &self.requests[self.current_request_idx], lay.response);
-        f.render_widget(t, lay.requests);
+        self.address_bar.draw(
+            f,
+            &self.requests[self.current_request_idx],
+            lay.address_verb,
+        );
+        self.requests_component.draw(f, lay.requests);
         if self.error_pop_up.0 {
             error_popup(f, &self.error_pop_up.1.as_ref().unwrap(), f.size());
             self.error_pop_up.0 = false;
@@ -633,13 +662,35 @@ impl App {
     fn navigation(&mut self, e: &AppEvent) {
         match e {
             NAV_UP => {
-                if self.req_tabs.is_active() {
+                if self.req_tabs.is_focused() {
                     self.req_tabs.lose_focus();
-                } else if self.resp_tabs.is_active() {
+                    self.address_bar.gain_focus();
+                } else if self.address_bar.is_focused() {
+                    self.address_bar.lose_focus();
+                    self.requests_component.gain_focus();
+                } else if self.resp_tabs.is_focused() {
                     self.resp_tabs.lose_focus();
+                    self.req_tabs.gain_focus();
+                } else if self.requests_component.is_focused() {
+                    self.requests_component.lose_focus();
+                    self.resp_tabs.gain_focus();
                 }
             }
-            NAV_DOWN => (),
+            NAV_DOWN => {
+                if self.req_tabs.is_focused() {
+                    self.req_tabs.lose_focus();
+                    self.resp_tabs.gain_focus();
+                } else if self.address_bar.is_focused() {
+                    self.address_bar.lose_focus();
+                    self.req_tabs.gain_focus();
+                } else if self.resp_tabs.is_focused() {
+                    self.resp_tabs.lose_focus();
+                    self.requests_component.gain_focus();
+                } else if self.requests_component.is_focused() {
+                    self.requests_component.lose_focus();
+                    self.address_bar.gain_focus();
+                }
+            }
             NAV_LEFT => (),
             NAV_RIGHT => (),
             _ => (),

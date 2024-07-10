@@ -1,4 +1,12 @@
+use crate::components::default_block;
+
 use super::text_box::TextBox;
+use ratatui::{
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Style},
+    widgets::Paragraph,
+    Frame,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -50,5 +58,23 @@ impl KV {
     }
     pub fn get_value(&self) -> String {
         self.value.text.to_string()
+    }
+    pub fn draw(&self, f: &mut Frame, rect: Rect) {
+        let chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+            .split(rect);
+        f.render_widget(
+            Paragraph::new(self.key.text.to_string())
+                .style(Style::default().fg(Color::White))
+                .block(default_block("Key", self.key.active)),
+            chunks[0],
+        );
+        f.render_widget(
+            Paragraph::new(self.value.text.to_string())
+                .style(Style::default().fg(Color::White))
+                .block(default_block("Value", self.value.active)),
+            chunks[1],
+        );
     }
 }

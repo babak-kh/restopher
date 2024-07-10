@@ -12,4 +12,5 @@ pub use modifiers::to_selected;
 
 pub use address_bar::AddressBarComponent;
 pub use request_tab::RequestTabComponent;
+pub use requests::RequestsComponent;
 pub use response_tab::ResponseTabComponent;

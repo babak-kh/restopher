@@ -152,18 +152,16 @@ impl Request {
     pub fn address(&self) -> String {
         self.address.to_string()
     }
-    //pub fn add_to_header(&mut self) {
-    //    let (key, value, active) = self.view.current_set_header();
-    //    if !key.is_empty() && !value.is_empty() {
-    //        self.add_to_header(key, value, active)
-    //    }
-    //}
-    //pub fn add_to_param(&mut self) {
-    //    let (key, value, active) = self.view.current_set_param();
-    //    if !key.is_empty() && !value.is_empty() {
-    //        self.add_to_param(key, value, active)
-    //    }
-    //}
+    pub fn add_to_header(&mut self, key: String, value: String, active: bool) {
+        if !key.is_empty() && !value.is_empty() {
+            self.add_to_header(key, value, active)
+        }
+    }
+    pub fn add_to_param(&mut self, key: String, value: String, active: bool) {
+        if !key.is_empty() && !value.is_empty() {
+            self.add_to_param(key, value, active)
+        }
+    }
     pub fn add_to_address(&mut self, c: char) {
         self.address.push(c);
     }
