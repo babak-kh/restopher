@@ -1,5 +1,5 @@
 use ratatui::backend::Backend;
-use ratatui::layout::{Constraint, Direction, Layout, Margin, Rect};
+use ratatui::layout::{Constraint, Direction, Flex, Layout, Margin, Rect};
 use ratatui::Frame;
 
 pub struct KV {
@@ -22,7 +22,7 @@ pub struct CollectionsLayout {
 }
 impl CollectionsLayout {
     pub fn new(f: &mut Frame, has_new_name: bool, has_new_collection: bool) -> Self {
-        let all = f.size().inner(&Margin {
+        let all = f.size().inner(Margin {
             vertical: 20,
             horizontal: 20,
         });
@@ -79,7 +79,7 @@ pub struct EnvironmentLayout {
 }
 impl EnvironmentLayout {
     pub fn new(f: &mut Frame, with_new_name: bool, with_new_kv: bool) -> Self {
-        let all = f.size().inner(&Margin {
+        let all = f.size().inner(Margin {
             vertical: 10,
             horizontal: 10,
         });
@@ -140,6 +140,7 @@ impl LayoutBuilder {
         with_new_req_name: bool,
     ) -> Self {
         let chunks = Layout::default()
+            .margin(5)
             .direction(Direction::Vertical)
             .constraints(vec![
                 Constraint::Percentage(6),  // req names
@@ -247,6 +248,8 @@ pub struct AppLayout {
 impl AppLayout {
     pub fn new(r: Rect) -> Self {
         let chunks = Layout::default()
+            .flex(Flex::Center)
+            .margin(0)
             .direction(Direction::Vertical)
             .constraints(vec![
                 Constraint::Percentage(6),  // req names

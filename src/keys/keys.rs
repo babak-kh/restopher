@@ -24,6 +24,16 @@ pub struct Event {
     pub key: Key,
 }
 
+pub const OPEN_COLLECTIONS: &Event = &Event {
+    modifier: Some(Modifier::Control),
+    key: Key::Char('c'),
+};
+
+pub const CLOSE_COLLECTIONS: &Event = &Event {
+    modifier: None,
+    key: Key::Esc,
+};
+
 pub const NAV_UP: &Event = &Event {
     modifier: Some(Modifier::Control),
     key: Key::Char('k'),

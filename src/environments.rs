@@ -85,7 +85,9 @@ impl TempEnv {
     pub fn remove_kv(&mut self) {
         let name = self.temp_envs[self.selected].envs_to_show[self.selected_kv][0].clone();
         self.temp_envs[self.selected].envs.remove(&name);
-        self.temp_envs[self.selected].envs_to_show.remove(self.selected_kv);
+        self.temp_envs[self.selected]
+            .envs_to_show
+            .remove(self.selected_kv);
         self.selected_kv = 0;
         self.changed = true;
     }

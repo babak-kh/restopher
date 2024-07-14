@@ -4,13 +4,16 @@ use crate::components::{
     ResponseTabComponent,
 };
 use crate::keys::keys::{
-    is_navigation, is_quit, transform, Event as AppEvent, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP,
+    is_navigation, is_quit, transform, Event as AppEvent, CLOSE_COLLECTIONS, NAV_DOWN, NAV_LEFT,
+    NAV_RIGHT, NAV_UP, OPEN_COLLECTIONS,
 };
-use crate::main_windows::key_registry;
+use crate::main_windows::{key_registry, ChangeEvent};
 use crate::request::HttpVerb;
 use crate::{
+    collection::Collection,
     components::error_popup,
     environments::{Environment, KV},
+    main_windows::MainWindows,
 };
 use crate::{environments, layout};
 use crossterm::event::{self, Event, KeyEvent};
@@ -34,7 +37,6 @@ use std::{
     io::{BufRead, BufReader, Read, Write},
     str::from_utf8,
 };
-use tree::{stateful_tree::StatefulTree, Node, TreeItem, TreeState};
 
 const ENV_PATH: &str = "envs";
 const COLLECTION_PATH: &str = "collections";
@@ -69,10 +71,10 @@ impl Error {
         }
     }
 }
-pub struct App {
+pub struct App<'a> {
     client: reqwest::Client,
     requests: Vec<super::request::Request>,
-    main_window: crate::main_windows::MainWindows,
+    main_window: MainWindows,
 
     req_tabs: RequestTabComponent<'static>,
     resp_tabs: ResponseTabComponent,
@@ -86,11 +88,11 @@ pub struct App {
     temp_envs: Option<environments::TempEnv>,
     current_env_idx: Option<usize>, // index of active environments
     data_directory: String,
-    collections: Option<StatefulTree>,
+    collections: Collection<'a>,
     regex_replacer: regex::Regex,
 }
 
-impl App {
+impl<'a> App<'a> {
     pub fn new() -> Self {
         let all_envs = match fs::File::open(format!("{}/{}", DATA_DIRECTORY, ENV_PATH)) {
             Ok(f) => {
@@ -109,6 +111,7 @@ impl App {
         };
         let mut requests = vec![super::request::Request::new()];
         let names = requests.iter().map(|r| r.name()).collect();
+        let cols = Collection::default(format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH));
         App {
             client: reqwest::Client::new(),
             requests,
@@ -125,7 +128,7 @@ impl App {
                 regex::escape(END_ENV_TOKEN)
             ))
             .unwrap(),
-            collections: None,
+            collections: cols,
             main_window: crate::main_windows::MainWindows::Main,
 
             req_tabs: RequestTabComponent::new(),
@@ -146,32 +149,87 @@ impl App {
                     self.navigation(&even);
                     continue;
                 }
+                match self.main_window {
+                    MainWindows::Main => {
+                        if matches!(&even, OPEN_COLLECTIONS) {
+                            self.main_window = MainWindows::Collections;
+                            continue;
+                        };
+                    }
+                    MainWindows::Collections => {
+                        if &even == CLOSE_COLLECTIONS {
+                            self.main_window = MainWindows::Main;
+                            continue;
+                        };
+                        if let Some(paths) = self.collections.update(&even) {
+                            self.main_window = MainWindows::Main;
+                            if let Some(path) = paths.last() {
+                                match fs::metadata(path.clone()) {
+                                    Ok(f) => {
+                                        if f.is_file() {
+                                            self.requests.push(
+                                                serde_json::from_reader(
+                                                    fs::File::open(path.clone()).unwrap(),
+                                                )
+                                                .unwrap(),
+                                            );
+                                        }
+                                        if f.is_dir() {
+                                            for entry in fs::read_dir(path.clone()).unwrap() {
+                                                let entry = entry.unwrap();
+                                                match entry.path().extension() {
+                                                    Some(ext) => {
+                                                        if ext == "rph" {
+                                                            self.requests.push(
+                                                                serde_json::from_reader(
+                                                                    fs::File::open(entry.path())
+                                                                        .unwrap(),
+                                                                )
+                                                                .unwrap(),
+                                                            );
+                                                        }
+                                                    }
+                                                    None => continue,
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        self.error_pop_up =
+                                            (true, Some(Error::FileOperationsErr(e)));
+                                    }
+                                };
+                            }
+                        };
+                    }
+                    _ => (),
+                };
                 match key_registry(&even, &self.main_window) {
-                    crate::main_windows::ChangeEvent::ChangeRequestTab => {
+                    ChangeEvent::ChangeRequestTab => {
                         self.req_tabs.update_inner_focus();
                         continue;
                     }
-                    crate::main_windows::ChangeEvent::ChangeResponseTab => {
+                    ChangeEvent::ChangeResponseTab => {
                         self.resp_tabs.update_inner_focus();
                         continue;
                     }
-                    crate::main_windows::ChangeEvent::SaveRequest => {
-                        self.save_request();
+                    ChangeEvent::SaveRequest => {
+                        self.save_current_req().unwrap();
                         continue;
                     }
-                    crate::main_windows::ChangeEvent::NewRequest => {
+                    ChangeEvent::NewRequest => {
                         self.new_request();
                         continue;
                     }
-                    crate::main_windows::ChangeEvent::PreRequest => {
+                    ChangeEvent::PreRequest => {
                         self.pre_req();
                         continue;
                     }
-                    crate::main_windows::ChangeEvent::NextRequest => {
+                    ChangeEvent::NextRequest => {
                         self.next_req();
                         continue;
                     }
-                    crate::main_windows::ChangeEvent::CallRequest => {
+                    ChangeEvent::CallRequest => {
                         match self.call_request().await {
                             Ok(_) => {}
                             Err(e) => {
@@ -180,10 +238,9 @@ impl App {
                         }
                         continue;
                     }
-                    crate::main_windows::ChangeEvent::NoChange => (),
+                    ChangeEvent::NoChange => (),
                 }
                 if self.req_tabs.is_focused() {
-                    println!("req tabs");
                     self.req_tabs
                         .update(&mut self.requests[self.current_request_idx], even);
                     continue;
@@ -207,7 +264,6 @@ impl App {
     }
     fn ui(&mut self, f: &mut Frame) {
         let lay = layout::AppLayout::new(f.size());
-
         let t = tabs(
             self.get_req_names()
                 .into_iter()
@@ -215,6 +271,7 @@ impl App {
                 .collect(),
             "requests",
             self.current_request_idx,
+            false,
         )
         .block(default_block("requests", false));
 
@@ -227,7 +284,15 @@ impl App {
             &self.requests[self.current_request_idx],
             lay.address_verb,
         );
-        self.requests_component.draw(f, lay.requests);
+        self.requests_component.draw(
+            f,
+            self.requests.iter().map(|r| r.name().clone()).collect(),
+            self.current_request_idx,
+            lay.requests,
+        );
+        if matches!(self.main_window, MainWindows::Collections) {
+            self.collections.draw(f);
+        }
         if self.error_pop_up.0 {
             error_popup(f, &self.error_pop_up.1.as_ref().unwrap(), f.size());
             self.error_pop_up.0 = false;
@@ -307,6 +372,9 @@ impl App {
         }
         let current_request = &mut self.requests[self.current_request_idx];
         current_request.set_response_status_code(resp.status().as_u16() as i32);
+        current_request
+            .set_response_headers(&resp.headers().clone())
+            .unwrap();
         current_request.set_response_body(resp.text().await.map_err(|e| Error::ReqwestErr(e))?);
         Ok(())
     }
@@ -316,9 +384,6 @@ impl App {
     //pub fn change_response_tab(&mut self) {
     //    self.state.next_response_tab();
     //}
-    pub fn save_request(&mut self) {
-        //self.requests.push()
-    }
     pub fn initiate_temp_envs(&mut self) {
         self.temp_envs = Some(environments::TempEnv::new(self.all_envs.clone()));
     }
@@ -475,66 +540,43 @@ impl App {
     //           req.body.kind = req.body.kind.change();
     //       }
     //   }
-    //   pub fn save_current_req(&mut self) -> Result<(), Error> {
-    //       let mut name = String::new();
-    //       if let Some(req) = self.current_request() {
-    //           name = req.name.clone();
-    //           if let Some(cols) = &self.collections {
-    //               let path: String = cols.get_node().ok_or::<Error>(Error::NoRequestErr(3))?.path;
-    //               match fs::metadata(path.clone()) {
-    //                   Ok(f) => {
-    //                       if f.is_dir() {
-    //                           match fs::File::create(format!("{}/{}.rph", path, name)) {
-    //                               Ok(mut f) => {
-    //                                   let to_write = serde_json::to_vec(req).unwrap();
-    //                                   f.write(&to_write).unwrap();
-    //                                   self.reload_collections();
-    //                               }
-    //                               Err(e) => return Err(Error::FileOperationsErr(e)),
-    //                           };
-    //                       }
-    //                   }
-    //                   Err(e) => return Err(Error::FileOperationsErr(e)),
-    //               };
-    //           }
-    //       } else {
-    //           return Err(Error::NoRequestErr(1));
-    //       };
-    //       Ok(())
-    //   }
+    pub fn save_current_req(&mut self) -> Result<(), Error> {
+        let req = self
+            .requests
+            .get(self.current_request_idx)
+            .ok_or(Error::NoRequestErr(2))?;
+        let name = req.name().clone();
+        let cols = &self.collections;
+        let path: String = cols
+            .get_selected()
+            .get(0)
+            .unwrap_or(&format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH))
+            .to_string();
+        match fs::metadata(path.clone()) {
+            Ok(f) => {
+                if f.is_dir() {
+                    match fs::File::create(format!("{}/{}.rph", path, name)) {
+                        Ok(mut f) => {
+                            let to_write = serde_json::to_vec(req).unwrap();
+                            f.write(&to_write).unwrap();
+                        }
+                        Err(e) => return Err(Error::FileOperationsErr(e)),
+                    };
+                }
+            }
+            Err(e) => return Err(Error::FileOperationsErr(e)),
+        };
+        Ok(())
+    }
     //   pub fn open_collections(&mut self) {
     //       self.selected_main_window = MainWindows::CollectionScr;
     //       self.set_collections();
     //   }
-    pub fn reload_collections(&mut self) {
-        let mut current_state = TreeState::default();
-        if let Some(cols) = &self.collections {
-            current_state = cols.get_state().clone()
-        }
-        let cols = self.create_tree(
-            Node::new(
-                format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH),
-                COLLECTION_PATH.to_string(),
-            ),
-            0,
-        );
-        self.collections = Some(StatefulTree::with_items_and_state(
-            vec![cols.unwrap()],
-            current_state,
-        ));
-    }
     //pub fn new_collection(&mut self) {
     //    self.has_new_collection = true
     //}
     pub fn set_collections(&mut self) {
-        let cols = self.create_tree(
-            Node::new(
-                format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH),
-                COLLECTION_PATH.to_string(),
-            ),
-            0,
-        );
-        self.collections = Some(StatefulTree::with_items(vec![cols.unwrap()]));
+        self.collections = Collection::default(format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH));
     }
     //    pub fn open_request_from_collection(&mut self) -> Result<(), Error> {
     //        if let Some(cols) = &self.collections {
@@ -639,26 +681,6 @@ impl App {
     //        }
     //        false
     //    }
-    fn create_tree(&mut self, node: Node, mut depth: usize) -> Option<TreeItem> {
-        let mut result = TreeItem::new_leaf(node.clone());
-        if depth > 10 || !fs::metadata(node.path.clone()).unwrap().is_dir() {
-            if !node.to_show.ends_with(".rph") {
-                return None;
-            };
-            return Some(result);
-        }
-        for entry in fs::read_dir(node.path.clone()).unwrap() {
-            let ent = entry.unwrap();
-            let f_name = ent.file_name().to_str().unwrap().to_string().clone();
-            let f_path = ent.path().to_string_lossy().to_string();
-            let new_path = Node::new(f_path, f_name);
-            depth += 1;
-            if let Some(r) = self.create_tree(new_path, depth) {
-                result.add_child(r);
-            }
-        }
-        Some(result)
-    }
     fn navigation(&mut self, e: &AppEvent) {
         match e {
             NAV_UP => {

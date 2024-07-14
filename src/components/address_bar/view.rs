@@ -1,21 +1,12 @@
 pub enum Focus {
-    None,
     Address,
     Verb,
 }
 impl Focus {
-    pub fn next(&self) -> Self {
+    pub fn next(&mut self) {
         match self {
-            Focus::None => Focus::Address,
-            Focus::Address => Focus::Verb,
-            Focus::Verb => Focus::None,
-        }
-    }
-    pub fn prev(&self) -> Self {
-        match self {
-            Focus::None => Focus::Verb,
-            Focus::Address => Focus::None,
-            Focus::Verb => Focus::Address,
+            Focus::Verb => *self = Focus::Address,
+            Focus::Address => *self = Focus::Verb,
         }
     }
 }

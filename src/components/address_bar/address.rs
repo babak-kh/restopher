@@ -1,4 +1,4 @@
-use crate::utils::text_box::TextBox;
+use crate::components::text_box::TextBox;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]

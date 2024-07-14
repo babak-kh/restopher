@@ -5,7 +5,7 @@ mod keys;
 mod layout;
 mod main_windows;
 mod request;
-mod utils;
+mod collection;
 
 use request::Request;
 use std::{env, io};

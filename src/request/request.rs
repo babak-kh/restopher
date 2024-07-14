@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::view::ReqView;
+use crate::request::body::{Body, BodyKind};
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 
@@ -38,40 +38,7 @@ impl HttpVerb {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum BodyKind {
-    JSON,
-    TEXT,
-}
-impl BodyKind {
-    pub fn to_string(&self) -> String {
-        match self {
-            BodyKind::JSON => "JSON".to_string(),
-            BodyKind::TEXT => "Text".to_string(),
-        }
-    }
-    pub fn change(&self) -> Self {
-        match self {
-            BodyKind::JSON => BodyKind::TEXT,
-            BodyKind::TEXT => BodyKind::JSON,
-        }
-    }
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Body {
-    pub kind: BodyKind,
-    pub payload: Option<String>,
-}
-impl Body {
-    pub fn default() -> Self {
-        Body {
-            kind: BodyKind::JSON,
-            payload: None,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Response {
     pub headers: Option<HashMap<String, String>>,
     pub body: Option<String>,
@@ -89,10 +56,6 @@ impl Response {
             status_code: 0,
         }
     }
-    //pub fn render(&self, f: &mut Frame, r: Rect, state: &State) {
-    //    let response_headers = handle_response_headers();
-    //    f.render_widget(default_block("Response"), r);
-    //}
 }
 
 pub fn handle_response_headers(
@@ -113,20 +76,19 @@ pub fn handle_response_headers(
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Request {
-    pub name: String,
-    pub headers: Option<Vec<(String, String, bool)>>,
-    pub params: Option<Vec<(String, String, bool)>>,
-    pub body: Body,
-    pub address: String,
-    pub verb: HttpVerb,
-    pub response: Option<Response>,
-    req_view: ReqView,
+    name: String,
+    headers: Option<Vec<(String, String, bool)>>,
+    params: Option<Vec<(String, String, bool)>>,
+    body: Body,
+    address: String,
+    verb: HttpVerb,
+    response: Option<Response>,
 }
 
 impl Request {
     pub fn new() -> Self {
         Request {
-            name: "".to_string(),
+            name: String::new(),
             headers: None,
             params: None,
             body: Body {
@@ -136,11 +98,10 @@ impl Request {
             address: "".to_string(),
             verb: HttpVerb::GET,
             response: None,
-            req_view: ReqView::new(),
         }
     }
     pub fn name(&self) -> String {
-        if self.name.is_empty() {
+        if !self.name.is_empty() {
             return self.name.clone();
         }
         let mut n = self.address.clone();
@@ -152,14 +113,21 @@ impl Request {
     pub fn address(&self) -> String {
         self.address.to_string()
     }
+    pub fn response(&self) -> Option<Response> {
+        self.response.clone()
+    }
     pub fn add_to_header(&mut self, key: String, value: String, active: bool) {
         if !key.is_empty() && !value.is_empty() {
-            self.add_to_header(key, value, active)
+            self.headers
+                .get_or_insert_with(|| Vec::new())
+                .push((key, value, active));
         }
     }
     pub fn add_to_param(&mut self, key: String, value: String, active: bool) {
         if !key.is_empty() && !value.is_empty() {
-            self.add_to_param(key, value, active)
+            self.params
+                .get_or_insert_with(|| Vec::new())
+                .push((key, value, active));
         }
     }
     pub fn add_to_address(&mut self, c: char) {
@@ -176,6 +144,15 @@ impl Request {
     }
     pub fn verb(&self) -> HttpVerb {
         self.verb.clone()
+    }
+    pub fn add_to_body(&mut self, c: char) {
+        self.body.add(c);
+    }
+    pub fn remove_from_body(&mut self) {
+        self.body.pop();
+    }
+    pub fn body(&self) -> Body {
+        self.body.clone()
     }
     pub fn resp_body_formatted(&self) -> String {
         if let Some(resp) = &self.response {
@@ -223,9 +200,6 @@ impl Request {
         }
         0
     }
-    //pub fn handle_headers(&self) -> HashMap<String, String> {
-    //    self.()
-    //}
     pub fn handle_params(&self) -> HashMap<String, String> {
         let h = self
             .params
@@ -303,52 +277,6 @@ impl Request {
         });
         Ok(())
     }
-    //pub fn add_to_active_header(&mut self, ch: char) {
-    //    self.view.add_to_active_header(ch)
-    //}
-    //pub fn delete_selected_header(&mut self, idx: usize) {
-    //    self.delete_header(idx)
-    //}
-    //pub fn active_deactive_header(&mut self, idx: usize) {
-    //    self.active_deactive_header(idx)
-    //}
-    //pub fn remove_from_active_header(&mut self) {
-    //    self.view.remove_from_active_header()
-    //}
-    //pub fn change_active_header(&mut self) {
-    //    self.view.change_active_header()
-    //}
-    //pub fn is_key_active_in_header(&self) -> bool {
-    //    self.view.is_key_active_in_header()
-    //}
-
-    //pub fn delete_selected_param(&mut self) {
-    //    let idx = self.view.param_idx();
-    //    self.delete_param(idx)
-    //}
-    //pub fn active_deactive_param(&mut self) {
-    //    let idx = self.view.param_idx();
-    //    self.active_deactive_param(idx)
-    //}
-    //pub fn add_to_active_param(&mut self, ch: char) {
-    //    self.view.add_to_active_header(ch)
-    //}
-    //pub fn remove_from_active_param(&mut self) {
-    //    self.view.remove_from_active_param()
-    //}
-    //pub fn change_active_param(&mut self) {
-    //    self.view.change_active_param()
-    //}
-    //pub fn is_key_active_in_param(&self) -> bool {
-    //    self.view.is_key_active_in_param()
-    //}
-    //pub fn response_headers(&self) -> Option<HashMap<String, String>> {
-    //    if let Some(resp) = &self.response {
-    //        return resp.headers.clone();
-    //    }
-    //    None
-    //}
-    // headers
     pub fn handle_headers(&self) -> HashMap<String, String> {
         self.headers
             .clone()

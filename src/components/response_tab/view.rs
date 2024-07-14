@@ -5,18 +5,18 @@ pub enum Focus {
 }
 
 impl Focus {
-    pub fn next(&mut self) {
+    pub fn next(&mut self) -> Focus {
         match self {
-            Focus::None => *self = Focus::Header(0),
-            Focus::Header(idx) => *self = Focus::Body,
-            Focus::Body => *self = Focus::None,
+            Focus::None => Focus::Header(0),
+            Focus::Header(idx) => Focus::Body,
+            Focus::Body => Focus::None,
         }
     }
-    pub fn prev(&mut self) {
+    pub fn prev(&mut self) -> Focus {
         match self {
-            Focus::None => *self = Focus::Body,
-            Focus::Header(idx) => *self = Focus::None,
-            Focus::Body => *self = Focus::Header(0),
+            Focus::None => Focus::Body,
+            Focus::Header(idx) => Focus::None,
+            Focus::Body => Focus::Header(0),
         }
     }
 }

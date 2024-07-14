@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TextBox {
     buffer: String,
@@ -11,6 +10,10 @@ impl TextBox {
             buffer: String::from(""),
             cursor_pos: 0,
         }
+    }
+    pub fn clear(&mut self) {
+        self.buffer.clear();
+        self.cursor_pos = 0;
     }
     pub fn to_string(&self) -> String {
         self.buffer.clone()

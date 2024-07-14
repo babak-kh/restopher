@@ -59,6 +59,11 @@ impl KV {
     pub fn get_value(&self) -> String {
         self.value.text.to_string()
     }
+    pub fn clear(&mut self) {
+        self.key.text.clear();
+        self.value.text.clear();
+        self.key.active = true;
+    }
     pub fn draw(&self, f: &mut Frame, rect: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Horizontal)

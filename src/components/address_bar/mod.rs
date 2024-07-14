@@ -1,8 +1,8 @@
 mod address;
-mod draw;
 mod verb;
 mod view;
 
+use super::default_block;
 use crate::{
     keys::keys::{Event, Key, Modifier},
     request::Request,
@@ -14,8 +14,6 @@ use ratatui::{
 };
 use view::Focus;
 
-use super::default_block;
-
 pub struct AddressBarComponent {
     focus: Focus,
     is_focused: bool,
@@ -24,7 +22,7 @@ pub struct AddressBarComponent {
 impl AddressBarComponent {
     pub fn new() -> Self {
         AddressBarComponent {
-            focus: Focus::None,
+            focus: Focus::Address,
             is_focused: false,
         }
     }
@@ -37,37 +35,30 @@ impl AddressBarComponent {
     pub fn lose_focus(&mut self) {
         self.is_focused = false;
     }
-    pub fn update(&self, req: &mut Request, event: &Event) {
-        match &self.focus {
-            Focus::Address => {
-                if let Some(modifier) = &event.modifier {
-                    match modifier {
-                        Modifier::Control => todo!(),
-                        Modifier::Shift => todo!(),
-                        Modifier::Alt => todo!(),
-                    }
-                }
-                match event.key {
-                    Key::Char(x) => req.add_to_address(x),
-                    Key::Backspace => req.remove_from_address(),
-                    _ => (),
+    pub fn update(&mut self, req: &mut Request, event: &Event) {
+        match event.key {
+            Key::Tab => self.focus.next(),
+            Key::Up => {
+                if matches!(self.focus, Focus::Verb) {
+                    req.verb_up()
                 }
             }
-            Focus::Verb => {
-                if let Some(modifier) = &event.modifier {
-                    match modifier {
-                        Modifier::Control => todo!(),
-                        Modifier::Shift => todo!(),
-                        Modifier::Alt => todo!(),
-                    }
-                }
-                match event.key {
-                    Key::Up => req.verb_up(),
-                    Key::Down => req.verb_down(),
-                    _ => (),
+            Key::Down => {
+                if matches!(self.focus, Focus::Verb) {
+                    req.verb_down()
                 }
             }
-            Focus::None => (),
+            Key::Char(x) => {
+                if matches!(self.focus, Focus::Address) {
+                    req.add_to_address(x);
+                }
+            }
+            Key::Backspace => {
+                if matches!(self.focus, Focus::Address) {
+                    req.remove_from_address();
+                }
+            }
+            _ => (),
         }
     }
     pub fn draw(&self, f: &mut Frame, req: &Request, rect: Rect) {
@@ -76,14 +67,20 @@ impl AddressBarComponent {
             .constraints([Constraint::Percentage(20), Constraint::Percentage(80)])
             .split(rect);
         f.render_widget(
-            Paragraph::new(req.verb.to_string())
-                .block(default_block("Verb", self.is_focused))
+            Paragraph::new(req.verb().to_string())
+                .block(default_block(
+                    "Verb",
+                    self.is_focused && matches!(self.focus, Focus::Verb),
+                ))
                 .wrap(Wrap { trim: true }),
             chunks[0],
         );
         f.render_widget(
-            Paragraph::new(req.address.as_str())
-                .block(default_block("Address", self.is_focused))
+            Paragraph::new(req.address().as_str())
+                .block(default_block(
+                    "Address",
+                    self.is_focused && matches!(self.focus, Focus::Address),
+                ))
                 .wrap(Wrap { trim: true }),
             chunks[1],
         );
