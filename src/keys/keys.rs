@@ -34,6 +34,16 @@ pub const CLOSE_COLLECTIONS: &Event = &Event {
     key: Key::Esc,
 };
 
+pub const OPEN_ENVIRONMENTS: &Event = &Event {
+    modifier: Some(Modifier::Control),
+    key: Key::Char('e'),
+};
+
+pub const CLOSE_ENVIRONMENTS: &Event = &Event {
+    modifier: None,
+    key: Key::Esc,
+};
+
 pub const NAV_UP: &Event = &Event {
     modifier: Some(Modifier::Control),
     key: Key::Char('k'),

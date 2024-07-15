@@ -4,8 +4,8 @@ use crate::components::{
     ResponseTabComponent,
 };
 use crate::keys::keys::{
-    is_navigation, is_quit, transform, Event as AppEvent, CLOSE_COLLECTIONS, NAV_DOWN, NAV_LEFT,
-    NAV_RIGHT, NAV_UP, OPEN_COLLECTIONS,
+    is_navigation, is_quit, transform, Event as AppEvent, CLOSE_COLLECTIONS, CLOSE_ENVIRONMENTS,
+    NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP, OPEN_COLLECTIONS, OPEN_ENVIRONMENTS,
 };
 use crate::main_windows::{key_registry, ChangeEvent};
 use crate::request::HttpVerb;
@@ -38,7 +38,7 @@ use std::{
     str::from_utf8,
 };
 
-const ENV_PATH: &str = "envs";
+const ENV_PATH: &str = "environments";
 const COLLECTION_PATH: &str = "collections";
 const DATA_DIRECTORY: &str = "/home/babak/.config/restopher";
 const START_ENV_TOKEN: &str = "{{";
@@ -83,7 +83,6 @@ pub struct App<'a> {
 
     current_request_idx: usize,
     error_pop_up: (bool, Option<Error>),
-    show_environments: bool,
     all_envs: Vec<Environment>,
     temp_envs: Option<environments::TempEnv>,
     current_env_idx: Option<usize>, // index of active environments
@@ -96,10 +95,31 @@ impl<'a> App<'a> {
     pub fn new() -> Self {
         let all_envs = match fs::File::open(format!("{}/{}", DATA_DIRECTORY, ENV_PATH)) {
             Ok(f) => {
-                let mut reader = BufReader::new(f);
-                let mut buffer = Vec::new();
-                reader.read_to_end(&mut buffer).unwrap();
-                serde_json::from_str(from_utf8(&buffer).unwrap()).unwrap()
+                if f.metadata().unwrap().is_dir() {
+                    let mut result = Vec::<Environment>::new();
+                    for entry in fs::read_dir(format!("{}/{}", DATA_DIRECTORY, ENV_PATH)).unwrap() {
+                        let entry = entry.unwrap();
+                        match entry.path().extension() {
+                            Some(ext) => {
+                                if ext == "env" {
+                                    result.push(
+                                        serde_json::from_reader(
+                                            fs::File::open(entry.path()).unwrap(),
+                                        )
+                                        .unwrap(),
+                                    );
+                                };
+                            }
+                            None => (),
+                        };
+                    }
+                    result
+                } else {
+                    let mut reader = BufReader::new(f);
+                    let mut buffer = Vec::new();
+                    reader.read_to_end(&mut buffer).unwrap();
+                    serde_json::from_str(from_utf8(&buffer).unwrap()).unwrap()
+                }
             }
             Err(e) => {
                 match e.kind() {
@@ -118,7 +138,6 @@ impl<'a> App<'a> {
             current_request_idx: 0,
             error_pop_up: (false, None),
             current_env_idx: None,
-            show_environments: false,
             all_envs,
             temp_envs: None,
             data_directory: DATA_DIRECTORY.to_string(),
@@ -129,7 +148,7 @@ impl<'a> App<'a> {
             ))
             .unwrap(),
             collections: cols,
-            main_window: crate::main_windows::MainWindows::Main,
+            main_window: MainWindows::Main,
 
             req_tabs: RequestTabComponent::new(),
             resp_tabs: ResponseTabComponent::new(),
@@ -155,6 +174,28 @@ impl<'a> App<'a> {
                             self.main_window = MainWindows::Collections;
                             continue;
                         };
+                        if matches!(&even, OPEN_ENVIRONMENTS) {
+                            self.main_window = MainWindows::Environments;
+                            match self.all_envs.len() {
+                                0 => self.temp_envs = Some(environments::TempEnv::new()),
+                                _ => {
+                                    self.temp_envs = Some(
+                                        self.all_envs[self.current_env_idx.unwrap()].clone().into(),
+                                    )
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                    MainWindows::Environments => {
+                        if &even == CLOSE_ENVIRONMENTS {
+                            self.main_window = MainWindows::Main;
+                            continue;
+                        };
+                        if let Some(temp) = &mut self.temp_envs {
+                            //temp.update(&even);
+                            continue;
+                        }
                     }
                     MainWindows::Collections => {
                         if &even == CLOSE_COLLECTIONS {
@@ -293,6 +334,11 @@ impl<'a> App<'a> {
         if matches!(self.main_window, MainWindows::Collections) {
             self.collections.draw(f);
         }
+        if matches!(self.main_window, MainWindows::Environments) {
+            if let Some(temp) = &mut self.temp_envs {
+                temp.draw(f, f.size());
+            }
+        }
         if self.error_pop_up.0 {
             error_popup(f, &self.error_pop_up.1.as_ref().unwrap(), f.size());
             self.error_pop_up.0 = false;
@@ -378,105 +424,6 @@ impl<'a> App<'a> {
         current_request.set_response_body(resp.text().await.map_err(|e| Error::ReqwestErr(e))?);
         Ok(())
     }
-    //pub fn change_request_tab(&mut self) {
-    //    self.state.next_request_tab();
-    //}
-    //pub fn change_response_tab(&mut self) {
-    //    self.state.next_response_tab();
-    //}
-    pub fn initiate_temp_envs(&mut self) {
-        self.temp_envs = Some(environments::TempEnv::new(self.all_envs.clone()));
-    }
-    pub fn clear_temp_envs(&mut self) -> Result<(), Error> {
-        if let Some(idx) = &mut self.current_env_idx {
-            let mut found: bool = false;
-            let name = &self.all_envs[*idx].name;
-            if let Some(temp) = &self.temp_envs {
-                for item in temp.temp_envs.iter().enumerate() {
-                    if item.1.name == *name {
-                        self.current_env_idx = Some(item.0);
-                        found = true;
-                        break;
-                    }
-                }
-            }
-            if !found {
-                self.current_env_idx = None;
-            }
-        }
-        if let Some(te) = &self.temp_envs {
-            if te.changed {
-                self.all_envs = te.temp_envs.clone();
-            }
-        }
-        self.temp_envs = None;
-
-        let mut env_file = fs::File::create(format!("{}/{}", DATA_DIRECTORY, ENV_PATH))
-            .map_err(|e| Error::FileOperationsErr(e))?;
-
-        if self.all_envs.len() > 0 {
-            env_file
-                .write_all(
-                    serde_json::to_string(&self.all_envs.clone())
-                        .map_err(|e| Error::JsonErr(e))?
-                        .as_bytes(),
-                )
-                .map_err(|e| Error::FileOperationsErr(e))?;
-        }
-        Ok(())
-    }
-    pub fn new_environment(&mut self, name: String) {
-        if let Some(te) = &mut self.temp_envs {
-            te.temp_envs.push(environments::Environment::new(name));
-            te.with_name_insertion = false;
-            te.changed = true;
-        }
-    }
-    pub fn change_active_env_panel(&mut self) {
-        if let Some(temp) = &mut self.temp_envs {
-            temp.change_environment_subsection()
-        }
-    }
-    pub fn has_new_env_name(&self) -> bool {
-        match &self.temp_envs {
-            Some(t) => t.with_name_insertion,
-            None => false,
-        }
-    }
-    pub fn has_new_env_kv(&self) -> bool {
-        match &self.temp_envs {
-            Some(t) => t.with_kv_insertion,
-            None => false,
-        }
-    }
-    pub fn change_active_env_kv(&mut self) {
-        match &mut self.temp_envs {
-            Some(t) => t.kv_insertion.is_key_active = !t.kv_insertion.is_key_active,
-            None => (),
-        }
-    }
-    pub fn add_to_env_kv(&mut self, name: String, key: String, value: String) {
-        if name == "".to_string() || key == "".to_string() || value == "".to_string() {
-            return;
-        }
-        match &mut self.temp_envs {
-            Some(t) => {
-                for item in t.temp_envs.iter_mut() {
-                    if item.name == name {
-                        item.envs.insert(key.clone(), value.clone());
-                        item.envs_to_show.push([key, value]);
-                        break;
-                    }
-                }
-                t.kv_insertion.key = "".to_string();
-                t.kv_insertion.value = "".to_string();
-                t.with_kv_insertion = false;
-                t.kv_insertion.is_key_active = true;
-                t.changed = true;
-            }
-            None => (),
-        }
-    }
     fn replace_envs<T>(&self, to_replace: T) -> T
     where
         T: Clone + EnvReplacer,
@@ -519,27 +466,6 @@ impl<'a> App<'a> {
     pub fn deselect_env(&mut self) {
         self.current_env_idx = None;
     }
-    //   pub fn add_to_req_body(&mut self, c: char) {
-    //       if let Some(req) = self.current_request_as_mut() {
-    //           req.add_to_req_body(c);
-    //       }
-    //   }
-    //   pub fn remove_from_req_body(&mut self) {
-    //       if let Some(req) = self.current_request_as_mut() {
-    //           req.remove_from_req_body();
-    //       }
-    //   }
-    //   pub fn req_body(&self) -> Body {
-    //       if let Some(req) = self.current_request() {
-    //           return req.body.clone();
-    //       };
-    //       Body::default()
-    //   }
-    //   pub fn change_body_kind(&mut self) {
-    //       if let Some(req) = &mut self.current_request_as_mut() {
-    //           req.body.kind = req.body.kind.change();
-    //       }
-    //   }
     pub fn save_current_req(&mut self) -> Result<(), Error> {
         let req = self
             .requests
@@ -568,48 +494,9 @@ impl<'a> App<'a> {
         };
         Ok(())
     }
-    //   pub fn open_collections(&mut self) {
-    //       self.selected_main_window = MainWindows::CollectionScr;
-    //       self.set_collections();
-    //   }
-    //pub fn new_collection(&mut self) {
-    //    self.has_new_collection = true
-    //}
     pub fn set_collections(&mut self) {
         self.collections = Collection::default(format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH));
     }
-    //    pub fn open_request_from_collection(&mut self) -> Result<(), Error> {
-    //        if let Some(cols) = &self.collections {
-    //            let path = cols.get_node().ok_or::<Error>(Error::NoRequestErr(3))?.path;
-    //            if path == "".to_string() {
-    //                return Err(Error::NoRequestErr(4));
-    //            }
-    //            match fs::metadata(path.clone()) {
-    //                Ok(f) => {
-    //                    if f.is_file() {
-    //                        self.add_to_requests_by_path(path.clone())?
-    //                    };
-    //                    if f.is_dir() {
-    //                        for entry in fs::read_dir(path.clone()).unwrap() {
-    //                            let entry = entry.unwrap();
-    //                            match entry.path().extension() {
-    //                                Some(ext) => {
-    //                                    if ext == "rph" {
-    //                                        self.add_to_requests_by_path(
-    //                                            entry.path().to_string_lossy().to_string(),
-    //                                        )?
-    //                                    }
-    //                                }
-    //                                None => continue,
-    //                            }
-    //                        }
-    //                    }
-    //                }
-    //                Err(e) => return Err(Error::FileOperationsErr(e)),
-    //            };
-    //        };
-    //        Ok(())
-    //    }
     //    fn add_to_requests_by_path(&mut self, path: String) -> Result<(), Error> {
     //        match fs::File::open(path) {
     //            Ok(f) => {
