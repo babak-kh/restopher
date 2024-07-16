@@ -10,9 +10,7 @@ use crate::keys::keys::{
 use crate::main_windows::{key_registry, ChangeEvent};
 use crate::request::HttpVerb;
 use crate::{
-    collection::Collection,
-    components::error_popup,
-    environments::{Environment, KV},
+    collection::Collection, components::error_popup, environments::Environment,
     main_windows::MainWindows,
 };
 use crate::{environments, layout};
@@ -93,7 +91,7 @@ pub struct App<'a> {
 
 impl<'a> App<'a> {
     pub fn new() -> Self {
-        let all_envs = match fs::File::open(format!("{}/{}", DATA_DIRECTORY, ENV_PATH)) {
+        let mut all_envs = match fs::File::open(format!("{}/{}", DATA_DIRECTORY, ENV_PATH)) {
             Ok(f) => {
                 if f.metadata().unwrap().is_dir() {
                     let mut result = Vec::<Environment>::new();
@@ -129,6 +127,9 @@ impl<'a> App<'a> {
                 Vec::new()
             }
         };
+        if all_envs.len() == 0 {
+            all_envs.push(Environment::new("default".to_string()));
+        }
         let mut requests = vec![super::request::Request::new()];
         let names = requests.iter().map(|r| r.name()).collect();
         let cols = Collection::default(format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH));
@@ -137,7 +138,7 @@ impl<'a> App<'a> {
             requests,
             current_request_idx: 0,
             error_pop_up: (false, None),
-            current_env_idx: None,
+            current_env_idx: Some(0),
             all_envs,
             temp_envs: None,
             data_directory: DATA_DIRECTORY.to_string(),
@@ -177,7 +178,9 @@ impl<'a> App<'a> {
                         if matches!(&even, OPEN_ENVIRONMENTS) {
                             self.main_window = MainWindows::Environments;
                             match self.all_envs.len() {
-                                0 => self.temp_envs = Some(environments::TempEnv::new()),
+                                0 => {
+                                    self.temp_envs = Some(environments::TempEnv::new());
+                                }
                                 _ => {
                                     self.temp_envs = Some(
                                         self.all_envs[self.current_env_idx.unwrap()].clone().into(),
@@ -190,10 +193,16 @@ impl<'a> App<'a> {
                     MainWindows::Environments => {
                         if &even == CLOSE_ENVIRONMENTS {
                             self.main_window = MainWindows::Main;
+                            if let Some(modified_env) =
+                                self.temp_envs.as_ref().unwrap().get_modified()
+                            {
+                                App::save_env(modified_env).unwrap();
+                            }
+
                             continue;
                         };
                         if let Some(temp) = &mut self.temp_envs {
-                            //temp.update(&even);
+                            temp.update(&even);
                             continue;
                         }
                     }
@@ -466,6 +475,24 @@ impl<'a> App<'a> {
     pub fn deselect_env(&mut self) {
         self.current_env_idx = None;
     }
+    pub fn save_env(env: Environment) -> Result<(), Error> {
+        let path = format!("{}/{}", DATA_DIRECTORY, ENV_PATH);
+        match fs::metadata(path.clone()) {
+            Ok(f) => {
+                if f.is_dir() {
+                    match fs::File::create(format!("{}/{}.env", path, env.name)) {
+                        Ok(mut f) => {
+                            let to_write = serde_json::to_vec(&env).unwrap();
+                            f.write(&to_write).unwrap();
+                        }
+                        Err(e) => return Err(Error::FileOperationsErr(e)),
+                    };
+                }
+            }
+            Err(e) => return Err(Error::FileOperationsErr(e)),
+        };
+        Ok(())
+    }
     pub fn save_current_req(&mut self) -> Result<(), Error> {
         let req = self
             .requests
@@ -497,77 +524,6 @@ impl<'a> App<'a> {
     pub fn set_collections(&mut self) {
         self.collections = Collection::default(format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH));
     }
-    //    fn add_to_requests_by_path(&mut self, path: String) -> Result<(), Error> {
-    //        match fs::File::open(path) {
-    //            Ok(f) => {
-    //                let mut reader = BufReader::new(f);
-    //                let mut buffer = Vec::new();
-    //                reader.read_to_end(&mut buffer).unwrap();
-    //                let new_req = serde_json::from_str(from_utf8(&buffer).unwrap()).unwrap();
-    //                if let Some(req) = &mut self.requests {
-    //                    req.push(new_req);
-    //                };
-    //                Ok(())
-    //            }
-    //            Err(e) => return Err(Error::FileOperationsErr(e)),
-    //        }
-    //    }
-    //    pub fn close_collections(&mut self) {
-    //        self.selected_main_window = MainWindows::RequestScr;
-    //        self.collections = None;
-    //    }
-    //    pub fn has_new_collection(&self) -> bool {
-    //        self.has_new_collection
-    //    }
-    //    pub fn has_new_req_name(&self) -> bool {
-    //        self.has_new_req_name
-    //    }
-    //    pub fn insert_collection_or_name(&mut self) {
-    //        if self.has_new_req_name {
-    //            let req_name = self.collection_or_name.clone();
-    //            if let Some(req) = &mut self.current_request_as_mut() {
-    //                req.name = req_name;
-    //                self.has_new_req_name = false;
-    //                self.collection_or_name = "".to_string();
-    //            }
-    //        }
-    //        if self.has_new_collection {
-    //            if let Some(cols) = &self.collections {
-    //                let path = cols.get_node().unwrap().path;
-    //                if path == "".to_string() {
-    //                    return;
-    //                }
-    //                fs::create_dir(format!("{}/{}", path, self.collection_or_name.clone())).unwrap();
-    //                self.has_new_collection = false;
-    //                self.collection_or_name = "".to_string();
-    //                self.reload_collections();
-    //            }
-    //        }
-    //    }
-    //pub fn add_to_collection_or_name_string(&mut self, x: char) {
-    //    if self.has_new_collection || self.has_new_req_name {
-    //        self.collection_or_name.push(x);
-    //    }
-    //}
-    //pub fn remove_from_collection_or_name_string(&mut self) {
-    //    if self.has_new_collection || self.has_new_req_name {
-    //        self.collection_or_name.pop();
-    //    }
-    //}
-    //pub fn close_new_req_or_collection(&mut self) {
-    //    self.has_new_req_name = false;
-    //    self.has_new_collection = false;
-    //    self.collection_or_name = "".to_string();
-    //}
-    //    pub fn current_req_has_name(&self) -> bool {
-    //        if let Some(req) = self.current_request() {
-    //            if req.name == "".to_string() {
-    //                return false;
-    //            }
-    //            return true;
-    //        }
-    //        false
-    //    }
     fn navigation(&mut self, e: &AppEvent) {
         match e {
             NAV_UP => {
