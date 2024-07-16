@@ -11,6 +11,13 @@ impl TextBox {
             cursor_pos: 0,
         }
     }
+    pub fn from(s: String) -> Self {
+        let len = s.len();
+        TextBox {
+            buffer: s,
+            cursor_pos: len,
+        }
+    }
     pub fn clear(&mut self) {
         self.buffer.clear();
         self.cursor_pos = 0;

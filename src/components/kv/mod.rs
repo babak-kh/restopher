@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::components::default_block;
 
 use super::text_box::TextBox;
@@ -19,6 +21,7 @@ pub struct KV {
     key: KVElement,
     value: KVElement,
 }
+
 impl KV {
     pub fn new() -> Self {
         KV {
@@ -28,6 +31,18 @@ impl KV {
             },
             value: KVElement {
                 text: TextBox::new(),
+                active: false,
+            },
+        }
+    }
+    pub fn from(key: String, value: String) -> Self {
+        KV {
+            key: KVElement {
+                text: TextBox::from(key),
+                active: true,
+            },
+            value: KVElement {
+                text: TextBox::from(value),
                 active: false,
             },
         }
