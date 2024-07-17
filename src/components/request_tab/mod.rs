@@ -129,7 +129,7 @@ impl<'a> RequestTabComponent<'a> {
     pub fn draw(&self, f: &mut Frame, request: &Request, rect: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(20), Constraint::Percentage(80)])
+            .constraints([Constraint::Percentage(10), Constraint::Percentage(90)])
             .split(rect);
 
         f.render_widget(

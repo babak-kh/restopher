@@ -55,9 +55,9 @@ impl ResponseTabComponent {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Percentage(15),
                 Constraint::Percentage(10),
-                Constraint::Percentage(75),
+                Constraint::Percentage(10),
+                Constraint::Percentage(80),
             ])
             .split(rect);
         f.render_widget(
@@ -75,7 +75,7 @@ impl ResponseTabComponent {
         );
         let status_code = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(20), Constraint::Percentage(80)])
+            .constraints([Constraint::Percentage(10), Constraint::Percentage(90)])
             .split(chunks[1]);
         f.render_widget(
             Paragraph::new("Status")

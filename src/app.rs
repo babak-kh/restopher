@@ -1,7 +1,7 @@
 use super::Request;
 use crate::components::{
-    self, default_block, tabs, AddressBarComponent, RequestTabComponent, RequestsComponent,
-    ResponseTabComponent,
+    default_block, tabs, AddressBarComponent, EnvironmentsComponent, RequestTabComponent,
+    RequestsComponent, ResponseTabComponent,
 };
 use crate::keys::keys::{
     is_navigation, is_quit, transform, Event as AppEvent, CLOSE_COLLECTIONS, CLOSE_ENVIRONMENTS,
@@ -78,12 +78,13 @@ pub struct App<'a> {
     resp_tabs: ResponseTabComponent,
     address_bar: AddressBarComponent,
     requests_component: RequestsComponent,
+    environments_component: EnvironmentsComponent,
 
     current_request_idx: usize,
     error_pop_up: (bool, Option<Error>),
     all_envs: Vec<Environment>,
     temp_envs: Option<environments::TempEnv>,
-    current_env_idx: Option<usize>, // index of active environments
+    current_env_idx: usize, // index of active environments
     data_directory: String,
     collections: Collection<'a>,
     regex_replacer: regex::Regex,
@@ -138,7 +139,7 @@ impl<'a> App<'a> {
             requests,
             current_request_idx: 0,
             error_pop_up: (false, None),
-            current_env_idx: Some(0),
+            current_env_idx: 0,
             all_envs,
             temp_envs: None,
             data_directory: DATA_DIRECTORY.to_string(),
@@ -155,6 +156,7 @@ impl<'a> App<'a> {
             resp_tabs: ResponseTabComponent::new(),
             address_bar: AddressBarComponent::new(),
             requests_component: RequestsComponent::new(names, 0),
+            environments_component: EnvironmentsComponent::new(),
         }
     }
     pub async fn run<B: Backend>(&mut self, term: &mut Terminal<B>) -> () {
@@ -182,9 +184,8 @@ impl<'a> App<'a> {
                                     self.temp_envs = Some(environments::TempEnv::new());
                                 }
                                 _ => {
-                                    self.temp_envs = Some(
-                                        self.all_envs[self.current_env_idx.unwrap()].clone().into(),
-                                    )
+                                    self.temp_envs =
+                                        Some(self.all_envs[self.current_env_idx].clone().into())
                                 }
                             }
                             continue;
@@ -198,7 +199,6 @@ impl<'a> App<'a> {
                             {
                                 App::save_env(modified_env).unwrap();
                             }
-
                             continue;
                         };
                         if let Some(temp) = &mut self.temp_envs {
@@ -306,7 +306,13 @@ impl<'a> App<'a> {
                     continue;
                 }
                 if self.requests_component.is_focused() {
-                    self.requests_component.update();
+                    self.requests_component.update(
+                        &mut self.requests,
+                        &mut self.current_request_idx,
+                        &mut self.all_envs,
+                        &mut self.current_env_idx,
+                        &even,
+                    );
                     continue;
                 }
             }
@@ -337,6 +343,9 @@ impl<'a> App<'a> {
         self.requests_component.draw(
             f,
             self.requests.iter().map(|r| r.name().clone()).collect(),
+            self.all_envs
+                .get(self.current_env_idx)
+                .map_or("-".to_string(), |e| e.name.clone()),
             self.current_request_idx,
             lay.requests,
         );
@@ -437,43 +446,10 @@ impl<'a> App<'a> {
     where
         T: Clone + EnvReplacer,
     {
-        match self.current_env_idx {
-            Some(idx) => to_replace.replace_env(&self.regex_replacer, &self.all_envs[idx].envs),
-            None => to_replace,
-        }
-    }
-    pub fn next_env(&mut self) {
-        if self.all_envs.len() > 0 {
-            match self.current_env_idx {
-                None => self.current_env_idx = Some(0),
-                Some(mut x) => {
-                    x = x + 1;
-                    self.current_env_idx = Some(x);
-                    if x == self.all_envs.len() {
-                        self.current_env_idx = Some(0);
-                    }
-                }
-            }
-        }
-    }
-    pub fn pre_env(&mut self) {
-        if self.all_envs.len() > 0 {
-            match self.current_env_idx {
-                None => self.current_env_idx = Some(0),
-                Some(mut x) => {
-                    if x > 0 {
-                        x = x - 1;
-                    }
-                    self.current_env_idx = Some(x);
-                    if x == self.all_envs.len() {
-                        self.current_env_idx = Some(0);
-                    }
-                }
-            }
-        }
-    }
-    pub fn deselect_env(&mut self) {
-        self.current_env_idx = None;
+        to_replace.replace_env(
+            &self.regex_replacer,
+            &self.all_envs[self.current_env_idx].envs,
+        )
     }
     pub fn save_env(env: Environment) -> Result<(), Error> {
         let path = format!("{}/{}", DATA_DIRECTORY, ENV_PATH);
