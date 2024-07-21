@@ -1,11 +1,12 @@
 mod app;
+mod collection;
 mod components;
 mod environments;
 mod keys;
 mod layout;
 mod main_windows;
 mod request;
-mod collection;
+mod ui;
 
 use request::Request;
 use std::{env, io};
@@ -21,7 +22,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 #[tokio::main]
 async fn main() -> Result<(), io::Error> {
     //    setup_terminal()?;
-    env::set_var("RUST_BACKTRACE", "1");
+    //    env::set_var("RUST_BACKTRACE", "1");
     let mut stdout = io::stdout();
     enable_raw_mode()?;
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;

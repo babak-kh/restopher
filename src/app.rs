@@ -1,38 +1,31 @@
-use super::Request;
-use crate::components::{
-    default_block, tabs, AddressBarComponent, EnvironmentsComponent, RequestTabComponent,
-    RequestsComponent, ResponseTabComponent,
-};
-use crate::keys::keys::{
-    is_navigation, is_quit, transform, Event as AppEvent, CLOSE_COLLECTIONS, CLOSE_ENVIRONMENTS,
-    NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP, OPEN_COLLECTIONS, OPEN_ENVIRONMENTS,
-};
-use crate::main_windows::{key_registry, ChangeEvent};
-use crate::request::HttpVerb;
 use crate::{
-    collection::Collection, components::error_popup, environments::Environment,
-    main_windows::MainWindows,
+    collection::Collection,
+    components::error_popup,
+    environments::{self, Environment, TempEnv},
+    layout,
+    main_windows::{key_registry, ChangeEvent, MainWindows},
+    request::HttpVerb,
 };
-use crate::{environments, layout};
-use crossterm::event::{self, Event, KeyEvent};
-use ratatui::widgets::{StatefulWidget, Widget};
-use ratatui::{
-    backend::Backend,
-    layout::{Constraint, Direction, Layout},
+use crate::{
+    components::{
+        AddressBarComponent, RequestTabComponent, RequestsComponent, ResponseTabComponent,
+    },
+    keys::keys::{
+        is_navigation, is_quit, transform, Event as AppEvent, CLOSE_COLLECTIONS,
+        CLOSE_ENVIRONMENTS, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP, NEW_ENVIRONMENT,
+        OPEN_COLLECTIONS, OPEN_ENVIRONMENTS,
+    },
 };
-use ratatui::{
-    style::{Color, Style},
-    text::Span,
-};
-use ratatui::{widgets, Frame, Terminal};
+
+use crossterm::event::{self, Event};
+use ratatui::{backend::Backend, Frame, Terminal};
 use regex::Regex;
-use reqwest::header::HeaderMap;
-use reqwest::{Response, ResponseBuilderExt};
+use reqwest::{header::HeaderMap, Response};
 use serde_json::{self};
 use std::{
     collections::{hash_map::RandomState, HashMap},
     fs,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufReader, Read, Write},
     str::from_utf8,
 };
 
@@ -78,14 +71,13 @@ pub struct App<'a> {
     resp_tabs: ResponseTabComponent,
     address_bar: AddressBarComponent,
     requests_component: RequestsComponent,
-    environments_component: EnvironmentsComponent,
 
     current_request_idx: usize,
     error_pop_up: (bool, Option<Error>),
+
     all_envs: Vec<Environment>,
     temp_envs: Option<environments::TempEnv>,
     current_env_idx: usize, // index of active environments
-    data_directory: String,
     collections: Collection<'a>,
     regex_replacer: regex::Regex,
 }
@@ -142,7 +134,6 @@ impl<'a> App<'a> {
             current_env_idx: 0,
             all_envs,
             temp_envs: None,
-            data_directory: DATA_DIRECTORY.to_string(),
             regex_replacer: Regex::new(&format!(
                 "{}.*{}",
                 regex::escape(START_ENV_TOKEN),
@@ -156,18 +147,55 @@ impl<'a> App<'a> {
             resp_tabs: ResponseTabComponent::new(),
             address_bar: AddressBarComponent::new(),
             requests_component: RequestsComponent::new(names, 0),
-            environments_component: EnvironmentsComponent::new(),
         }
     }
-    pub async fn run<B: Backend>(&mut self, term: &mut Terminal<B>) -> () {
+    pub fn reload_envs(&mut self) {
+        self.all_envs = match fs::File::open(format!("{}/{}", DATA_DIRECTORY, ENV_PATH)) {
+            Ok(f) => {
+                if f.metadata().unwrap().is_dir() {
+                    let mut result = Vec::<Environment>::new();
+                    for entry in fs::read_dir(format!("{}/{}", DATA_DIRECTORY, ENV_PATH)).unwrap() {
+                        let entry = entry.unwrap();
+                        match entry.path().extension() {
+                            Some(ext) => {
+                                if ext == "env" {
+                                    result.push(
+                                        serde_json::from_reader(
+                                            fs::File::open(entry.path()).unwrap(),
+                                        )
+                                        .unwrap(),
+                                    );
+                                };
+                            }
+                            None => (),
+                        };
+                    }
+                    result
+                } else {
+                    let mut reader = BufReader::new(f);
+                    let mut buffer = Vec::new();
+                    reader.read_to_end(&mut buffer).unwrap();
+                    serde_json::from_str(from_utf8(&buffer).unwrap()).unwrap()
+                }
+            }
+            Err(e) => {
+                match e.kind() {
+                    std::io::ErrorKind::NotFound => (),
+                    _ => (),
+                };
+                Vec::new()
+            }
+        };
+    }
+    pub async fn run<B: Backend>(mut self, term: &mut Terminal<B>) -> () {
         loop {
             term.draw(|f| self.ui(f)).unwrap();
             if let Event::Key(key) = event::read().unwrap() {
                 let even = transform(key);
                 if is_quit(&even) {
-                    panic!("quit");
+                    return;
                 }
-                if is_navigation(&even) {
+                if is_navigation(&even) && matches!(self.main_window, MainWindows::Main) {
                     self.navigation(&even);
                     continue;
                 }
@@ -179,30 +207,22 @@ impl<'a> App<'a> {
                         };
                         if matches!(&even, OPEN_ENVIRONMENTS) {
                             self.main_window = MainWindows::Environments;
-                            match self.all_envs.len() {
-                                0 => {
-                                    self.temp_envs = Some(environments::TempEnv::new());
-                                }
-                                _ => {
-                                    self.temp_envs =
-                                        Some(self.all_envs[self.current_env_idx].clone().into())
-                                }
-                            }
-                            continue;
+                            self.temp_envs =
+                                Some(TempEnv::new(self.all_envs.clone(), self.current_env_idx));
                         }
+                        continue;
                     }
                     MainWindows::Environments => {
-                        if &even == CLOSE_ENVIRONMENTS {
-                            self.main_window = MainWindows::Main;
-                            if let Some(modified_env) =
-                                self.temp_envs.as_ref().unwrap().get_modified()
-                            {
-                                App::save_env(modified_env).unwrap();
-                            }
-                            continue;
-                        };
                         if let Some(temp) = &mut self.temp_envs {
-                            temp.update(&even);
+                            let result = temp.update(&even);
+                            if result.1 {
+                                continue;
+                            }
+                            self.main_window = MainWindows::Main;
+                            if let Some(modified_env) = result.0 {
+                                App::save_env(modified_env).unwrap();
+                                self.reload_envs();
+                            }
                             continue;
                         }
                     }
@@ -320,16 +340,6 @@ impl<'a> App<'a> {
     }
     fn ui(&mut self, f: &mut Frame) {
         let lay = layout::AppLayout::new(f.size());
-        let t = tabs(
-            self.get_req_names()
-                .into_iter()
-                .map(|s| Span::from(s))
-                .collect(),
-            "requests",
-            self.current_request_idx,
-            false,
-        )
-        .block(default_block("requests", false));
 
         self.req_tabs
             .draw(f, &self.requests[self.current_request_idx], lay.request);
@@ -361,14 +371,6 @@ impl<'a> App<'a> {
             error_popup(f, &self.error_pop_up.1.as_ref().unwrap(), f.size());
             self.error_pop_up.0 = false;
         }
-    }
-
-    pub fn get_req_names(&self) -> Vec<String> {
-        let mut result = Vec::new();
-        for r in &self.requests {
-            result.push({ r.name() });
-        }
-        result
     }
     pub fn new_request(&mut self) {
         self.requests.push(super::Request::new());
@@ -451,22 +453,30 @@ impl<'a> App<'a> {
             &self.all_envs[self.current_env_idx].envs,
         )
     }
-    pub fn save_env(env: Environment) -> Result<(), Error> {
+    pub fn save_env(environments: Vec<Environment>) -> Result<(), Error> {
         let path = format!("{}/{}", DATA_DIRECTORY, ENV_PATH);
-        match fs::metadata(path.clone()) {
-            Ok(f) => {
-                if f.is_dir() {
-                    match fs::File::create(format!("{}/{}.env", path, env.name)) {
-                        Ok(mut f) => {
-                            let to_write = serde_json::to_vec(&env).unwrap();
-                            f.write(&to_write).unwrap();
-                        }
-                        Err(e) => return Err(Error::FileOperationsErr(e)),
-                    };
+        for env in environments.iter() {
+            match fs::metadata(path.clone()) {
+                Ok(f) => {
+                    if f.is_dir() {
+                        match fs::File::create(format!("{}/{}.env", path, env.name)) {
+                            Ok(mut f) => {
+                                let to_write = serde_json::to_vec(&env).unwrap();
+                                f.write(&to_write).unwrap();
+                            }
+                            Err(e) => match fs::File::open(format!("{}/{}.env", path, env.name)) {
+                                Ok(mut f) => {
+                                    f.write(serde_json::to_vec(&env).unwrap().as_slice())
+                                        .unwrap();
+                                }
+                                Err(e) => return Err(Error::FileOperationsErr(e)),
+                            },
+                        };
+                    }
                 }
+                Err(e) => return Err(Error::FileOperationsErr(e)),
             }
-            Err(e) => return Err(Error::FileOperationsErr(e)),
-        };
+        }
         Ok(())
     }
     pub fn save_current_req(&mut self) -> Result<(), Error> {

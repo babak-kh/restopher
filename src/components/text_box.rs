@@ -1,4 +1,6 @@
+use crate::keys::keys::{Event, Key};
 use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Deserialize, Serialize)]
 pub struct TextBox {
     buffer: String,
@@ -44,5 +46,25 @@ impl TextBox {
     }
     pub fn cursor_position(&self) -> usize {
         self.cursor_pos
+    }
+    pub fn get_content(&self) -> String {
+        self.buffer.clone()
+    }
+    pub fn update(&mut self, event: &Event) {
+        match event.key {
+            Key::Char(c) => {
+                self.push(c);
+            }
+            Key::Backspace => {
+                self.pop();
+            }
+            Key::Left => {
+                self.cursor_pre();
+            }
+            Key::Right => {
+                self.cursor_next();
+            }
+            _ => {}
+        }
     }
 }

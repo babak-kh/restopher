@@ -56,8 +56,8 @@ impl ResponseTabComponent {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Percentage(10),
-                Constraint::Percentage(10),
-                Constraint::Percentage(80),
+                Constraint::Percentage(12),
+                Constraint::Percentage(78),
             ])
             .split(rect);
         f.render_widget(
@@ -80,7 +80,7 @@ impl ResponseTabComponent {
         f.render_widget(
             Paragraph::new("Status")
                 .alignment(Alignment::Center)
-                .block(Block::default().borders(Borders::NONE)),
+                .block(Block::default().borders(Borders::ALL)),
             status_code[0],
         );
         f.render_widget(
