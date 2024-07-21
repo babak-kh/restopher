@@ -1,5 +1,7 @@
 use crate::components::{default_block, PopUpComponent, KV};
 use crate::layout::centered_rect;
+use ratatui::layout::Margin;
+use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState};
 use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Style},
@@ -260,9 +262,16 @@ impl TempEnv {
         let title = format!("Environment: {}", self.all_envs[self.selected].name);
         let chunks = Layout::horizontal(&[Constraint::Percentage(20), Constraint::Percentage(80)])
             .split(rect);
+        let vertical_scroll = 0; // from app state
+        let mut scrollbar_state =
+            ScrollbarState::new(self.all_envs.len()).position(vertical_scroll);
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(Some("↑"))
+            .end_symbol(Some("↓"));
         f.render_widget(Clear, rect);
         let mut list_state = ListState::default();
         list_state.select(Some(self.selected));
+
         f.render_stateful_widget(
             List::new(self.all_envs.iter().map(|env| env.name.clone()))
                 .block(
@@ -274,6 +283,15 @@ impl TempEnv {
                 .highlight_symbol(">>"),
             chunks[0],
             &mut list_state,
+        );
+        f.render_stateful_widget(
+            scrollbar,
+            chunks[0].inner(Margin {
+                // using an inner vertical margin of 1 unit makes the scrollbar inside the block
+                vertical: 1,
+                horizontal: 0,
+            }),
+            &mut scrollbar_state,
         );
         let mut state = TableState::default();
         state.select(Some(self.selected_kv));
@@ -292,7 +310,21 @@ impl TempEnv {
         .highlight_style(Style::new().fg(Color::Green))
         .highlight_symbol(">>");
 
+        let mut scrollbar_state =
+            ScrollbarState::new(self.current_kvs.len()).position(vertical_scroll);
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(Some("↑"))
+            .end_symbol(Some("↓"));
         f.render_stateful_widget(items, chunks[1], &mut state);
+        f.render_stateful_widget(
+            scrollbar,
+            chunks[1].inner(Margin {
+                // using an inner vertical margin of 1 unit makes the scrollbar inside the block
+                vertical: 1,
+                horizontal: 0,
+            }),
+            &mut scrollbar_state,
+        );
         if let Some(popup) = &self.popup {
             let r = centered_rect(60, 20, rect);
             f.render_widget(Clear, r);

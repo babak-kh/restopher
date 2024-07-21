@@ -209,8 +209,8 @@ impl<'a> App<'a> {
                             self.main_window = MainWindows::Environments;
                             self.temp_envs =
                                 Some(TempEnv::new(self.all_envs.clone(), self.current_env_idx));
+                            continue;
                         }
-                        continue;
                     }
                     MainWindows::Environments => {
                         if let Some(temp) = &mut self.temp_envs {
