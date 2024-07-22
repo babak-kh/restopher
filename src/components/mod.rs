@@ -7,6 +7,7 @@ mod request_tab;
 mod requests;
 mod response_tab;
 mod text_box;
+mod text_area;
 
 pub use blocks::{default_block, tabs};
 pub use error_popup::error_popup;

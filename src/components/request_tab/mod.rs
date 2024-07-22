@@ -11,7 +11,7 @@ use ratatui::{
 pub use request_tab::{ReqTabs, RequestTabOptions};
 
 use crate::{
-    components::{default_block, tabs, KV},
+    components::{default_block, tabs, text_area::TextArea, KV},
     keys::keys::{Event, Key, Modifier},
     request::Request,
 };
@@ -23,6 +23,7 @@ pub struct RequestTabComponent<'a> {
     req_tabs: ReqTabs<'a>,
     new_header: KV,
     new_param: KV,
+    body_view: TextArea,
 }
 
 impl<'a> RequestTabComponent<'a> {
@@ -33,6 +34,7 @@ impl<'a> RequestTabComponent<'a> {
             req_tabs: ReqTabs::new(),
             new_param: KV::new(),
             new_header: KV::new(),
+            body_view: TextArea::new(),
         }
     }
     pub fn update_inner_focus(&mut self) {
