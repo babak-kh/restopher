@@ -514,7 +514,7 @@ impl<'a> App<'a> {
         match e {
             NAV_UP => {
                 if self.req_tabs.is_focused() {
-                    self.req_tabs.lose_focus();
+                    self.req_tabs.lose_focus(&mut self.requests[self.current_request_idx]);
                     self.address_bar.gain_focus();
                 } else if self.address_bar.is_focused() {
                     self.address_bar.lose_focus();
@@ -529,7 +529,7 @@ impl<'a> App<'a> {
             }
             NAV_DOWN => {
                 if self.req_tabs.is_focused() {
-                    self.req_tabs.lose_focus();
+                    self.req_tabs.lose_focus(&mut self.requests[self.current_request_idx]);
                     self.resp_tabs.gain_focus();
                 } else if self.address_bar.is_focused() {
                     self.address_bar.lose_focus();

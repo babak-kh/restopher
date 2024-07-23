@@ -1,5 +1,6 @@
 use ratatui::{
-    layout::Rect,
+    layout::{Constraint, Layout, Rect},
+    style::{Color, Style},
     text::Span,
     widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
@@ -48,13 +49,19 @@ impl TextArea {
         if self.buffer.len() == 0 {
             return;
         }
-        self.cursor_pos -= 1;
         self.buffer.remove(self.cursor_pos);
+        self.cursor_pos -= 1;
     }
     pub fn cursor_pre(&mut self) {
+        if self.buffer.len() == 0 {
+            return;
+        }
         self.cursor_pos -= 1;
     }
     pub fn cursor_next(&mut self) {
+        if self.cursor_pos == self.buffer.len() - 1 {
+            return;
+        }
         self.cursor_pos += 1;
     }
     pub fn cursor_position(&self) -> usize {
@@ -84,10 +91,36 @@ impl TextArea {
         }
     }
     pub fn draw(&self, f: &mut Frame, rect: Rect) {
-        let data: String = serde_json::from_str(self.buffer.clone().as_str()).unwrap();
-        let paragraph = Paragraph::new(data)
+        let (content, error) = match self.kind {
+            Kind::Plain => (self.buffer.clone(), String::from("")),
+            Kind::Json => serde_json::from_str(self.buffer.clone().as_str()).map_or_else(
+                |e| {
+                    let mut error = String::from("");
+                    error.push_str("Error: ");
+                    error.push_str(e.to_string().as_str());
+                    (self.buffer.clone(), error)
+                },
+                |data: String| {
+                    let pretty = serde_json::to_string_pretty(&data).unwrap();
+                    (pretty, String::from(""))
+                },
+            ),
+        };
+        let mut chunks: Vec<Rect> = vec![rect];
+        if !error.is_empty() {
+            let chk =
+                Layout::vertical(vec![Constraint::Percentage(12), Constraint::Percentage(88)])
+                    .split(rect);
+            chunks = vec![chk[0], chk[1]];
+            let paragraph = Paragraph::new(error)
+                .style(Style::default().fg(Color::Red))
+                .block(Block::default().borders(Borders::ALL).title("Error"))
+                .wrap(Wrap { trim: false });
+            f.render_widget(paragraph, chunks[0]);
+        }
+        let paragraph = Paragraph::new(content)
             .block(Block::default().borders(Borders::ALL).title("TextArea"))
             .wrap(Wrap { trim: false });
-        f.render_widget(paragraph, rect);
+        f.render_widget(paragraph, chunks[1]);
     }
 }

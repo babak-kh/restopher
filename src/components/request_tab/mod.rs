@@ -1,6 +1,7 @@
 mod request_tab;
 mod view;
 
+use crate::request::{Body, BodyKind};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
@@ -107,22 +108,20 @@ impl<'a> RequestTabComponent<'a> {
                     }
                 }
             }
-            Focus::Body => match event.key {
-                Key::Char(x) => {
-                    req.add_to_body(x);
-                }
-                Key::Backspace => {
-                    req.remove_from_body();
-                }
-                _ => (),
-            },
+            Focus::Body => {
+                self.body_view.update(&event);
+            }
             Focus::None => (),
         }
     }
     pub fn is_focused(&self) -> bool {
         self.focused
     }
-    pub fn lose_focus(&mut self) {
+    pub fn lose_focus(&mut self, request: &mut Request) {
+        request.set_body(Body {
+            payload: Some(self.body_view.get_content()),
+            kind: BodyKind::JSON,
+        });
         self.focused = false;
     }
     pub fn gain_focus(&mut self) {
@@ -163,13 +162,7 @@ impl<'a> RequestTabComponent<'a> {
                     }
                 };
             }
-            RequestTabOptions::Body(_, _) => f.render_widget(
-                Paragraph::new(request.body().to_string()).block(default_block(
-                    "Body",
-                    self.focused && matches!(self.focus, Focus::Body),
-                )),
-                chunks[1],
-            ),
+            RequestTabOptions::Body(_, _) => self.body_view.draw(f, chunks[1]),
             RequestTabOptions::Params(_, _) => {
                 match self.focus {
                     Focus::NewParamKV => {

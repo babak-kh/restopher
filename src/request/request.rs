@@ -211,6 +211,9 @@ impl Request {
             .collect::<HashMap<String, String>>();
         h
     }
+    pub fn set_body(&mut self, b: Body) {
+        self.body = b;
+    }
     pub fn handle_json_body(&self) -> Result<Option<serde_json::Value>, crate::app::Error> {
         match &self.body.payload {
             Some(data) => {
