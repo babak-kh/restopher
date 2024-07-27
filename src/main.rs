@@ -4,8 +4,10 @@ mod components;
 mod environments;
 mod keys;
 mod layout;
+mod logger;
 mod main_windows;
 mod request;
+mod styles;
 
 use request::Request;
 use std::{env, io};
@@ -22,6 +24,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 async fn main() -> Result<(), io::Error> {
     //    setup_terminal()?;
     //    env::set_var("RUST_BACKTRACE", "1");
+    logger::initialize_logging().unwrap();
     let mut stdout = io::stdout();
     enable_raw_mode()?;
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;

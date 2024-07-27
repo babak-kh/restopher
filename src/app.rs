@@ -188,155 +188,167 @@ impl<'a> App<'a> {
         };
     }
     pub async fn run<B: Backend>(mut self, term: &mut Terminal<B>) -> () {
+        term.draw(|f| self.ui(f)).unwrap();
         loop {
+            match self.update().await {
+                Some(s) => {
+                    if s == "quit" {
+                        break;
+                    }
+                }
+                None => (),
+            }
             term.draw(|f| self.ui(f)).unwrap();
-            if let Event::Key(key) = event::read().unwrap() {
-                let even = transform(key);
-                if is_quit(&even) {
-                    return;
-                }
-                if is_navigation(&even) && matches!(self.main_window, MainWindows::Main) {
-                    self.navigation(&even);
-                    continue;
-                }
-                match self.main_window {
-                    MainWindows::Main => {
-                        if matches!(&even, OPEN_COLLECTIONS) {
-                            self.main_window = MainWindows::Collections;
-                            continue;
-                        };
-                        if matches!(&even, OPEN_ENVIRONMENTS) {
-                            self.main_window = MainWindows::Environments;
-                            self.temp_envs =
-                                Some(TempEnv::new(self.all_envs.clone(), self.current_env_idx));
-                            continue;
-                        }
+        }
+    }
+    pub async fn update(&mut self) -> Option<String> {
+        if let Event::Key(key) = event::read().unwrap() {
+            let even = transform(key);
+            if is_quit(&even) {
+                return Some("quit".to_string());
+            }
+            if is_navigation(&even) && matches!(self.main_window, MainWindows::Main) {
+                self.navigation(&even);
+                return None;
+            }
+            match self.main_window {
+                MainWindows::Main => {
+                    if matches!(&even, OPEN_COLLECTIONS) {
+                        self.main_window = MainWindows::Collections;
+                        return None;
+                    };
+                    if matches!(&even, OPEN_ENVIRONMENTS) {
+                        self.main_window = MainWindows::Environments;
+                        self.temp_envs =
+                            Some(TempEnv::new(self.all_envs.clone(), self.current_env_idx));
+                        return None;
                     }
-                    MainWindows::Environments => {
-                        if let Some(temp) = &mut self.temp_envs {
-                            let result = temp.update(&even);
-                            if result.1 {
-                                continue;
-                            }
-                            self.main_window = MainWindows::Main;
-                            if let Some(modified_env) = result.0 {
-                                App::save_env(modified_env).unwrap();
-                                self.reload_envs();
-                            }
-                            continue;
+                }
+                MainWindows::Environments => {
+                    if let Some(temp) = &mut self.temp_envs {
+                        let result = temp.update(&even);
+                        if result.1 {
+                            return None;
                         }
+                        self.main_window = MainWindows::Main;
+                        if let Some(modified_env) = result.0 {
+                            App::save_env(modified_env).unwrap();
+                            self.reload_envs();
+                        }
+                        return None;
                     }
-                    MainWindows::Collections => {
-                        if &even == CLOSE_COLLECTIONS {
-                            self.main_window = MainWindows::Main;
-                            continue;
-                        };
-                        if let Some(paths) = self.collections.update(&even) {
-                            self.main_window = MainWindows::Main;
-                            if let Some(path) = paths.last() {
-                                match fs::metadata(path.clone()) {
-                                    Ok(f) => {
-                                        if f.is_file() {
-                                            self.requests.push(
-                                                serde_json::from_reader(
-                                                    fs::File::open(path.clone()).unwrap(),
-                                                )
-                                                .unwrap(),
-                                            );
-                                        }
-                                        if f.is_dir() {
-                                            for entry in fs::read_dir(path.clone()).unwrap() {
-                                                let entry = entry.unwrap();
-                                                match entry.path().extension() {
-                                                    Some(ext) => {
-                                                        if ext == "rph" {
-                                                            self.requests.push(
-                                                                serde_json::from_reader(
-                                                                    fs::File::open(entry.path())
-                                                                        .unwrap(),
-                                                                )
-                                                                .unwrap(),
-                                                            );
-                                                        }
+                }
+                MainWindows::Collections => {
+                    if &even == CLOSE_COLLECTIONS {
+                        self.main_window = MainWindows::Main;
+                        return None;
+                    };
+                    if let Some(paths) = self.collections.update(&even) {
+                        self.main_window = MainWindows::Main;
+                        if let Some(path) = paths.last() {
+                            match fs::metadata(path.clone()) {
+                                Ok(f) => {
+                                    if f.is_file() {
+                                        self.requests.push(
+                                            serde_json::from_reader(
+                                                fs::File::open(path.clone()).unwrap(),
+                                            )
+                                            .unwrap(),
+                                        );
+                                    }
+                                    if f.is_dir() {
+                                        for entry in fs::read_dir(path.clone()).unwrap() {
+                                            let entry = entry.unwrap();
+                                            match entry.path().extension() {
+                                                Some(ext) => {
+                                                    if ext == "rph" {
+                                                        self.requests.push(
+                                                            serde_json::from_reader(
+                                                                fs::File::open(entry.path())
+                                                                    .unwrap(),
+                                                            )
+                                                            .unwrap(),
+                                                        );
                                                     }
-                                                    None => continue,
                                                 }
+                                                None => continue,
                                             }
                                         }
                                     }
-                                    Err(e) => {
-                                        self.error_pop_up =
-                                            (true, Some(Error::FileOperationsErr(e)));
-                                    }
-                                };
-                            }
-                        };
-                    }
-                    _ => (),
-                };
-                match key_registry(&even, &self.main_window) {
-                    ChangeEvent::ChangeRequestTab => {
-                        self.req_tabs.update_inner_focus();
-                        continue;
-                    }
-                    ChangeEvent::ChangeResponseTab => {
-                        self.resp_tabs.update_inner_focus();
-                        continue;
-                    }
-                    ChangeEvent::SaveRequest => {
-                        self.save_current_req().unwrap();
-                        continue;
-                    }
-                    ChangeEvent::NewRequest => {
-                        self.new_request();
-                        continue;
-                    }
-                    ChangeEvent::PreRequest => {
-                        self.pre_req();
-                        continue;
-                    }
-                    ChangeEvent::NextRequest => {
-                        self.next_req();
-                        continue;
-                    }
-                    ChangeEvent::CallRequest => {
-                        match self.call_request().await {
-                            Ok(_) => {}
-                            Err(e) => {
-                                self.error_pop_up = (true, Some(e));
-                            }
+                                }
+                                Err(e) => {
+                                    self.error_pop_up = (true, Some(Error::FileOperationsErr(e)));
+                                }
+                            };
                         }
-                        continue;
+                    };
+                }
+                _ => (),
+            };
+            match key_registry(&even, &self.main_window) {
+                ChangeEvent::ChangeRequestTab => {
+                    self.req_tabs.update_inner_focus();
+                    return None;
+                }
+                ChangeEvent::ChangeResponseTab => {
+                    self.resp_tabs.update_inner_focus();
+                    return None;
+                }
+                ChangeEvent::SaveRequest => {
+                    self.save_current_req().unwrap();
+                    return None;
+                }
+                ChangeEvent::NewRequest => {
+                    self.new_request();
+                    return None;
+                }
+                ChangeEvent::PreRequest => {
+                    self.pre_req();
+                    return None;
+                }
+                ChangeEvent::NextRequest => {
+                    self.next_req();
+                    return None;
+                }
+                ChangeEvent::CallRequest => {
+                    match self.call_request().await {
+                        Ok(_) => {}
+                        Err(e) => {
+                            self.error_pop_up = (true, Some(e));
+                        }
                     }
-                    ChangeEvent::NoChange => (),
+                    return None;
                 }
-                if self.req_tabs.is_focused() {
-                    self.req_tabs
-                        .update(&mut self.requests[self.current_request_idx], even);
-                    continue;
-                }
-                if self.address_bar.is_focused() {
-                    self.address_bar
-                        .update(&mut self.requests[self.current_request_idx], &even);
-                    continue;
-                }
-                if self.resp_tabs.is_focused() {
-                    self.resp_tabs
-                        .update(&mut self.requests[self.current_request_idx], &even);
-                    continue;
-                }
-                if self.requests_component.is_focused() {
-                    self.requests_component.update(
-                        &mut self.requests,
-                        &mut self.current_request_idx,
-                        &mut self.all_envs,
-                        &mut self.current_env_idx,
-                        &even,
-                    );
-                    continue;
-                }
+                ChangeEvent::NoChange => (),
             }
+            if self.req_tabs.is_focused() {
+                self.req_tabs
+                    .update(&mut self.requests[self.current_request_idx], even);
+                return None;
+            }
+            if self.address_bar.is_focused() {
+                self.address_bar
+                    .update(&mut self.requests[self.current_request_idx], &even);
+                return None;
+            }
+            if self.resp_tabs.is_focused() {
+                self.resp_tabs
+                    .update(&mut self.requests[self.current_request_idx], &even);
+                return None;
+            }
+            if self.requests_component.is_focused() {
+                self.requests_component.update(
+                    &mut self.requests,
+                    &mut self.current_request_idx,
+                    &mut self.all_envs,
+                    &mut self.current_env_idx,
+                    &even,
+                );
+                return None;
+            }
+            return None;
         }
+        return None;
     }
     fn ui(&mut self, f: &mut Frame) {
         let lay = layout::AppLayout::new(f.size());
@@ -514,7 +526,8 @@ impl<'a> App<'a> {
         match e {
             NAV_UP => {
                 if self.req_tabs.is_focused() {
-                    self.req_tabs.lose_focus(&mut self.requests[self.current_request_idx]);
+                    self.req_tabs
+                        .lose_focus(&mut self.requests[self.current_request_idx]);
                     self.address_bar.gain_focus();
                 } else if self.address_bar.is_focused() {
                     self.address_bar.lose_focus();
@@ -529,7 +542,8 @@ impl<'a> App<'a> {
             }
             NAV_DOWN => {
                 if self.req_tabs.is_focused() {
-                    self.req_tabs.lose_focus(&mut self.requests[self.current_request_idx]);
+                    self.req_tabs
+                        .lose_focus(&mut self.requests[self.current_request_idx]);
                     self.resp_tabs.gain_focus();
                 } else if self.address_bar.is_focused() {
                     self.address_bar.lose_focus();
