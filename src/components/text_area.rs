@@ -1,8 +1,8 @@
 use ratatui::{
-    layout::{Constraint, Layout, Rect},
+    layout::{Constraint, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
     Frame,
 };
 use serde_json::Value;
@@ -21,7 +21,6 @@ pub enum Kind {
 pub struct TextArea {
     lines: Vec<String>,
     cursor_pos: (usize, usize),
-    is_cursor_at_end: bool,
     kind: Kind,
 }
 
@@ -30,7 +29,6 @@ impl TextArea {
         TextArea {
             lines: Vec::new(),
             cursor_pos: (0, 0),
-            is_cursor_at_end: true,
             kind: Kind::Json,
         }
     }
@@ -40,7 +38,6 @@ impl TextArea {
         TextArea {
             lines: s.lines().map(|l| l.to_string()).collect::<Vec<String>>(),
             cursor_pos: (0, 0),
-            is_cursor_at_end: true,
             kind: Kind::Json,
         }
     }
@@ -105,8 +102,35 @@ impl TextArea {
         }
         self.cursor_pos.0 += 1;
     }
+    pub fn cursor_up(&mut self) {
+        if self.is_on_first_line() {
+            return;
+        }
+        self.cursor_pos.1 -= 1;
+        match self.lines[self.cursor_pos.1].chars().nth(self.cursor_pos.0) {
+            None => {
+                self.cursor_pos.0 = self.lines[self.cursor_pos.1].len();
+            }
+            Some(_) => {}
+        }
+    }
+    pub fn cursor_down(&mut self) {
+        if self.is_on_last_line() {
+            return;
+        }
+        self.cursor_pos.1 += 1;
+        match self.lines[self.cursor_pos.1].chars().nth(self.cursor_pos.0) {
+            None => {
+                self.cursor_pos.0 = self.lines[self.cursor_pos.1].len();
+            }
+            Some(_) => {}
+        }
+    }
     fn is_on_last_line(&self) -> bool {
         self.cursor_pos.1 == self.lines.len() - 1
+    }
+    fn is_on_first_line(&self) -> bool {
+        self.cursor_pos.1 == 0
     }
     fn is_on_last_char(&self) -> bool {
         self.cursor_pos.0 == self.lines[self.cursor_pos.1].len()
@@ -143,6 +167,12 @@ impl TextArea {
             }
             Key::Right => {
                 self.cursor_next();
+            }
+            Key::Up => {
+                self.cursor_up();
+            }
+            Key::Down => {
+                self.cursor_down();
             }
             Key::Enter => {
                 self.push('\n');
@@ -193,20 +223,51 @@ impl TextArea {
                 .wrap(Wrap { trim: false });
             f.render_widget(paragraph, chunks[0]);
         }
-        trace_dbg!(level:tracing::Level::INFO, self.cursor_pos);
+
+        let mut display_lines = self.lines.clone();
+        let actual_height = chunks[1].height as usize - 2;
+        trace_dbg!(
+            level:tracing::Level::INFO,
+            (self.cursor_pos, chunks[1].height as usize)
+        );
+        let mut diff = 0;
+        if self.cursor_pos.1 - 1 >= actual_height {
+            diff = self.cursor_pos.1 - 1 - actual_height;
+            display_lines = display_lines[diff..].to_vec();
+        };
         let paragraph = Paragraph::new(TextArea::prepare_body(
-            &self.lines,
+            &display_lines,
             self.cursor_pos,
-            self.is_cursor_at_end,
+            diff,
         ))
         .block(Block::default().borders(Borders::ALL).title("TextArea"))
         .wrap(Wrap { trim: false });
         f.render_widget(paragraph, chunks[1]);
+
+        let mut state = ScrollbarState::default()
+            .content_length(self.lines.len())
+            .viewport_content_length(chunks[1].height as usize);
+        f.render_stateful_widget(
+            Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(None)
+                .end_symbol(None)
+                .track_symbol(None)
+                .thumb_symbol("▐"),
+            chunks[1].inner(Margin {
+                vertical: 1,
+                horizontal: 2,
+            }),
+            &mut state,
+        );
     }
-    fn prepare_body(content: &Vec<String>, cursor_position: (usize, usize), _: bool) -> Vec<Line> {
+    fn prepare_body(
+        content: &Vec<String>,
+        cursor_position: (usize, usize),
+        moved: usize,
+    ) -> Vec<Line> {
         let mut lines: Vec<Line> = Vec::new();
         for (idx, line) in content.iter().enumerate() {
-            if cursor_position.1 == idx {
+            if cursor_position.1 == idx + moved {
                 if cursor_position.0 == line.len() {
                     let mut ll = Line::raw(line);
                     ll.push_span(cursor_like_span(' '));
