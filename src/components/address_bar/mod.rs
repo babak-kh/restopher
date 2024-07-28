@@ -1,5 +1,4 @@
 mod address;
-mod verb;
 mod view;
 
 use super::default_block;
@@ -69,7 +68,7 @@ impl AddressBarComponent {
         f.render_widget(
             Paragraph::new(req.verb().to_string())
                 .block(default_block(
-                    "Verb",
+                    Some("Verb"),
                     self.is_focused && matches!(self.focus, Focus::Verb),
                 ))
                 .wrap(Wrap { trim: true }),
@@ -78,7 +77,7 @@ impl AddressBarComponent {
         f.render_widget(
             Paragraph::new(req.address().as_str())
                 .block(default_block(
-                    "Address",
+                    Some("Address"),
                     self.is_focused && matches!(self.focus, Focus::Address),
                 ))
                 .wrap(Wrap { trim: true }),

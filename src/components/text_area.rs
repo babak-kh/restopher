@@ -1,3 +1,4 @@
+use copypasta::{ClipboardContext, ClipboardProvider};
 use ratatui::{
     layout::{Constraint, Layout, Margin, Rect},
     style::{Color, Modifier, Style},
@@ -9,6 +10,7 @@ use serde_json::Value;
 use tracing::trace;
 
 use crate::{
+    components::default_block,
     keys::keys::{Event, Key, Modifier as keyModifier},
     styles::cursor_like_span,
     trace_dbg,
@@ -22,6 +24,7 @@ pub struct TextArea {
     lines: Vec<String>,
     cursor_pos: (usize, usize),
     kind: Kind,
+    is_focused: bool,
 }
 
 impl TextArea {
@@ -30,6 +33,7 @@ impl TextArea {
             lines: Vec::new(),
             cursor_pos: (0, 0),
             kind: Kind::Json,
+            is_focused: true,
         }
     }
     pub fn from(s: String) -> Self {
@@ -39,7 +43,11 @@ impl TextArea {
             lines: s.lines().map(|l| l.to_string()).collect::<Vec<String>>(),
             cursor_pos: (0, 0),
             kind: Kind::Json,
+            is_focused: true,
         }
+    }
+    pub fn set_focus(&mut self, focus: bool) {
+        self.is_focused = focus;
     }
     pub fn new_line(&mut self) {
         if self.cursor_pos.1 == self.lines.len() - 1 {
@@ -141,6 +149,14 @@ impl TextArea {
     pub fn get_content(&self) -> String {
         self.lines.join("\n")
     }
+    pub fn add_to_lines(&mut self, s: String) {
+        let current_pos = self.cursor_pos.1;
+        s.lines()
+            .rev()
+            .map(|l| l.to_string())
+            .for_each(|l| self.lines.insert(self.cursor_pos.1, l));
+        self.cursor_pos = (0, 0);
+    }
     pub fn update(&mut self, event: &Event) {
         if let Some(modif) = &event.modifier {
             match modif {
@@ -148,12 +164,18 @@ impl TextArea {
                     Key::Char('b') => {
                         self.kind = Kind::Json;
                         self.format_json_mut();
+                        return;
                     }
-                    _ => {}
+                    Key::Char('v') => {
+                        self.kind = Kind::Json;
+                        let mut ctx = ClipboardContext::new().unwrap();
+                        self.add_to_lines(ctx.get_contents().unwrap());
+                        return;
+                    }
+                    _ => (),
                 },
                 _ => {}
             }
-            return;
         }
         match event.key {
             Key::Char(c) => {
@@ -219,7 +241,7 @@ impl TextArea {
             chunks = vec![chk[0], chk[1]];
             let paragraph = Paragraph::new(error)
                 .style(Style::default().fg(Color::Red))
-                .block(Block::default().borders(Borders::ALL).title("Error"))
+                .block(default_block(Some("Error"), self.is_focused))
                 .wrap(Wrap { trim: false });
             f.render_widget(paragraph, chunks[0]);
         }
@@ -231,8 +253,8 @@ impl TextArea {
             (self.cursor_pos, chunks[1].height as usize)
         );
         let mut diff = 0;
-        if self.cursor_pos.1 - 1 >= actual_height {
-            diff = self.cursor_pos.1 - 1 - actual_height;
+        if self.cursor_pos.1 >= actual_height + 1 {
+            diff = self.cursor_pos.1 - actual_height + 1;
             display_lines = display_lines[diff..].to_vec();
         };
         let paragraph = Paragraph::new(TextArea::prepare_body(
@@ -240,7 +262,7 @@ impl TextArea {
             self.cursor_pos,
             diff,
         ))
-        .block(Block::default().borders(Borders::ALL).title("TextArea"))
+        .block(default_block(Some("Body"), self.is_focused))
         .wrap(Wrap { trim: false });
         f.render_widget(paragraph, chunks[1]);
 

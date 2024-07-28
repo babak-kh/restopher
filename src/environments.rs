@@ -304,7 +304,7 @@ impl TempEnv {
         )
         .header(Row::new(vec!["Key", "Value"]))
         .block(default_block(
-            &title,
+            Some(&title),
             matches!(self.environment_sub_selection, EnvironmentSubSection::KVs),
         ))
         .highlight_style(Style::new().fg(Color::Green))

@@ -67,7 +67,7 @@ impl ResponseTabComponent {
                     .iter()
                     .map(|t| Span::from(t.to_string()))
                     .collect(),
-                "response data tabs",
+                Some("Response Data"),
                 self.resp_tabs.active_idx(),
                 self.is_focused,
             ),
@@ -124,20 +124,19 @@ impl ResponseTabComponent {
                                 }),
                                 vec![Constraint::Percentage(50), Constraint::Percentage(50)],
                             )
-                            .block(default_block("headers", self.is_focused)),
+                            .block(default_block(None, self.is_focused)),
                             chunks[2],
                         );
                     } else {
                         f.render_widget(
-                            Paragraph::new("No headers")
-                                .block(default_block("headers", self.is_focused)),
+                            Paragraph::new("").block(default_block(None, self.is_focused)),
                             chunks[2],
                         );
                     }
                 } else {
                     f.render_widget(
-                        Paragraph::new("Resp Headers")
-                            .block(default_block("headers", self.is_focused)),
+                        Paragraph::new("")
+                            .block(default_block(Some("Response Headers"), self.is_focused)),
                         chunks[2],
                     );
                 }
@@ -147,21 +146,21 @@ impl ResponseTabComponent {
                     if let Some(body) = &resp.body {
                         f.render_widget(
                             Paragraph::new(body.to_string())
-                                .block(default_block("body", self.is_focused))
+                                .block(default_block(Some("Response Body"), self.is_focused))
                                 .wrap(Wrap { trim: false }),
                             chunks[2],
                         );
                     } else {
                         f.render_widget(
-                            Paragraph::new("No body")
-                                .block(default_block("resp body", self.is_focused)),
+                            Paragraph::new("No Body")
+                                .block(default_block(Some("Response Body"), self.is_focused)),
                             chunks[2],
                         );
                     }
                 } else {
                     f.render_widget(
-                        Paragraph::new("No body")
-                            .block(default_block("resp body", self.is_focused)),
+                        Paragraph::new("")
+                            .block(default_block(Some("Response Body"), self.is_focused)),
                         chunks[2],
                     );
                 }

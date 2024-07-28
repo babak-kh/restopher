@@ -140,7 +140,7 @@ impl<'a> RequestTabComponent<'a> {
                     .iter()
                     .map(|t| Span::from(t.to_string()))
                     .collect(),
-                "Request data tabs",
+                Some("Request Data"),
                 self.req_tabs.active_idx(),
                 self.focused,
             ),
@@ -154,11 +154,25 @@ impl<'a> RequestTabComponent<'a> {
                             .direction(Direction::Vertical)
                             .constraints([Constraint::Percentage(80), Constraint::Percentage(20)])
                             .split(chunks[1]);
-                        render_items(f, &request.headers(), Some(0), self.focused, chunksVer[0]);
+                        render_items(
+                            f,
+                            "Headers",
+                            &request.headers(),
+                            Some(0),
+                            self.focused,
+                            chunksVer[0],
+                        );
                         self.new_header.draw(f, chunksVer[1]);
                     }
                     _ => {
-                        render_items(f, &request.headers(), Some(0), self.focused, chunks[1]);
+                        render_items(
+                            f,
+                            "Headers",
+                            &request.headers(),
+                            Some(0),
+                            self.focused,
+                            chunks[1],
+                        );
                     }
                 };
             }
@@ -170,11 +184,25 @@ impl<'a> RequestTabComponent<'a> {
                             .direction(Direction::Vertical)
                             .constraints([Constraint::Percentage(80), Constraint::Percentage(20)])
                             .split(chunks[1]);
-                        render_items(f, &request.params(), Some(0), self.focused, chunksVer[0]);
+                        render_items(
+                            f,
+                            "Params",
+                            &request.params(),
+                            Some(0),
+                            self.focused,
+                            chunksVer[0],
+                        );
                         self.new_param.draw(f, chunksVer[1]);
                     }
                     _ => {
-                        render_items(f, &request.params(), Some(0), self.focused, chunks[1]);
+                        render_items(
+                            f,
+                            "Params",
+                            &request.params(),
+                            Some(0),
+                            self.focused,
+                            chunks[1],
+                        );
                     }
                 };
             }
@@ -184,6 +212,7 @@ impl<'a> RequestTabComponent<'a> {
 
 fn render_items(
     f: &mut Frame,
+    block_title: &str,
     items: &Option<Vec<(String, String, bool)>>,
     selected: Option<usize>,
     focused: bool,
@@ -214,7 +243,7 @@ fn render_items(
         );
     }
     f.render_widget(
-        Paragraph::new("Req Headers").block(default_block("headers", focused)),
+        Paragraph::new("").block(default_block(Some(block_title), focused)),
         rect,
     );
 }

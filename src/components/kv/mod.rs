@@ -87,13 +87,13 @@ impl KV {
         f.render_widget(
             Paragraph::new(self.key.text.to_string())
                 .style(Style::default().fg(Color::White))
-                .block(default_block("Key", self.key.active)),
+                .block(default_block(Some("Key"), self.key.active)),
             chunks[0],
         );
         f.render_widget(
             Paragraph::new(self.value.text.to_string())
                 .style(Style::default().fg(Color::White))
-                .block(default_block("Value", self.value.active)),
+                .block(default_block(Some("Value"), self.value.active)),
             chunks[1],
         );
     }

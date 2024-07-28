@@ -110,6 +110,9 @@ impl Request {
         };
         n
     }
+    pub fn set_name(&mut self, n: String) {
+        self.name = n;
+    }
     pub fn address(&self) -> String {
         self.address.to_string()
     }

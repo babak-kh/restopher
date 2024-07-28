@@ -1,14 +1,18 @@
 use crate::components::{default_block, tabs};
 use crate::environments::Environment;
-use crate::keys::keys::{Event, Key};
+use crate::keys::keys::{Event, Key, Modifier};
+use crate::layout::centered_rect;
 use crate::request::Request;
+use ratatui::widgets::Clear;
 use ratatui::{
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::Span,
     widgets::{List, ListItem, ListState, Paragraph},
     Frame,
 };
+
+use super::PopUpComponent;
 
 enum focus {
     Env,
@@ -26,6 +30,7 @@ impl focus {
 pub struct RequestsComponent {
     is_focused: bool,
     focus: focus,
+    popup: Option<PopUpComponent>,
 }
 
 impl RequestsComponent {
@@ -33,6 +38,7 @@ impl RequestsComponent {
         Self {
             is_focused: false,
             focus: focus::Requests,
+            popup: None,
         }
     }
     pub fn is_focused(&self) -> bool {
@@ -46,6 +52,16 @@ impl RequestsComponent {
         environment_index: &mut usize,
         event: &Event,
     ) {
+        if let Some(popup) = &mut self.popup {
+            let result = popup.update(event);
+            if result.1 {
+                return;
+            };
+            self.popup = None;
+            if let Some(rename) = result.0 {
+                requests[*request_index].set_name(rename);
+            };
+        };
         match event.key {
             Key::Tab => {
                 self.focus.next();
@@ -55,41 +71,75 @@ impl RequestsComponent {
         }
         match self.focus {
             focus::Env => match event.key {
-                Key::Up => {
-                    if *environment_index < environments.len() - 1 {
+                Key::Down => {
+                    if *environment_index < environments.len() {
                         *environment_index += 1;
                     }
-                    if *environment_index == environments.len() - 1 {
+                    if *environment_index == environments.len() {
                         *environment_index = 0;
                     }
                 }
-                Key::Down => {
-                    if *environment_index == environments.len() - 1 {
-                        *environment_index = 0;
+                Key::Up => {
+                    if *environment_index == 0 {
+                        *environment_index = environments.len() - 1;
                         return;
                     }
                     *environment_index -= 1;
                 }
                 _ => (),
             },
-            focus::Requests => match event.key {
-                Key::Char('h') => {
-                    if *request_index == requests.len() - 1 {
-                        *request_index = 0;
-                        return;
+            focus::Requests => {
+                if let Some(modifier) = &event.modifier {
+                    match modifier {
+                        Modifier::Control => match event.key {
+                            Key::Char('d') => {
+                                if requests.len() == 1 {
+                                    return;
+                                }
+                                requests.remove(*request_index);
+                                if *request_index == requests.len() {
+                                    *request_index -= 1;
+                                }
+                            }
+                            Key::Char('n') => {
+                                requests.push(Request::new());
+                                *request_index = requests.len() - 1;
+                            }
+                            _ => (),
+                        },
+                        Modifier::Alt => match event.key {
+                            Key::Char('r') => {
+                                self.popup = Some(PopUpComponent::new(
+                                    "Rename".to_string(),
+                                    "Rename Request".to_string(),
+                                    None,
+                                    None,
+                                ));
+                            }
+                            _ => (),
+                        },
+                        _ => (),
                     }
-                    *request_index -= 1;
-                }
-                Key::Char('l') => {
-                    if *request_index < requests.len() - 1 {
-                        *request_index += 1;
+                };
+                match event.key {
+                    Key::Char('h') => {
+                        if *request_index == requests.len() - 1 {
+                            *request_index = 0;
+                            return;
+                        }
+                        *request_index -= 1;
                     }
-                    if *request_index == requests.len() - 1 {
-                        *request_index = 0;
+                    Key::Char('l') => {
+                        if *request_index < requests.len() - 1 {
+                            *request_index += 1;
+                        }
+                        if *request_index == requests.len() - 1 {
+                            *request_index = 0;
+                        }
                     }
-                }
-                _ => (),
-            },
+                    _ => (),
+                };
+            }
         }
     }
     pub fn focus(&mut self) {
@@ -118,7 +168,7 @@ impl RequestsComponent {
         f.render_widget(
             tabs(
                 names.iter().map(|t| Span::from(t.to_string())).collect(),
-                "Requests",
+                Some("Requests"),
                 selected,
                 self.is_focused && matches!(self.focus, focus::Requests),
             ),
@@ -126,10 +176,15 @@ impl RequestsComponent {
         );
         f.render_widget(
             Paragraph::new(env_name).block(default_block(
-                "Environment",
+                Some("Environment"),
                 self.is_focused && matches!(self.focus, focus::Env),
             )),
             chunks[1],
         );
+        if let Some(popup) = &self.popup {
+            let r = centered_rect(60, 20, f.size());
+            f.render_widget(Clear, r);
+            popup.draw(f, r);
+        }
     }
 }
