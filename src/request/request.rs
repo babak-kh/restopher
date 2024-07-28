@@ -110,6 +110,9 @@ impl Request {
         };
         n
     }
+    pub fn set_name(&mut self, n: String) {
+        self.name = n;
+    }
     pub fn address(&self) -> String {
         self.address.to_string()
     }
@@ -210,6 +213,9 @@ impl Request {
             .map(|item| (item.0.clone(), item.1.clone()))
             .collect::<HashMap<String, String>>();
         h
+    }
+    pub fn set_body(&mut self, b: Body) {
+        self.body = b;
     }
     pub fn handle_json_body(&self) -> Result<Option<serde_json::Value>, crate::app::Error> {
         match &self.body.payload {

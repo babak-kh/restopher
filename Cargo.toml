@@ -15,3 +15,10 @@ serde = { version = "1.0.160", features = ["derive"] }
 serde_json = "*"
 regex = "1"
 tui-tree-widget = "*"
+tracing-error = "0.2.0"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+directories = "5.0.1"
+lazy_static = "1.5.0"
+color-eyre = "0.6.3"
+copypasta = "0.10.1"

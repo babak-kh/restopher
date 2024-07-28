@@ -1,6 +1,7 @@
 mod request_tab;
 mod view;
 
+use crate::request::{Body, BodyKind};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::Style,
@@ -11,7 +12,7 @@ use ratatui::{
 pub use request_tab::{ReqTabs, RequestTabOptions};
 
 use crate::{
-    components::{default_block, tabs, KV},
+    components::{default_block, tabs, text_area::TextArea, KV},
     keys::keys::{Event, Key, Modifier},
     request::Request,
 };
@@ -23,6 +24,7 @@ pub struct RequestTabComponent<'a> {
     req_tabs: ReqTabs<'a>,
     new_header: KV,
     new_param: KV,
+    body_view: TextArea,
 }
 
 impl<'a> RequestTabComponent<'a> {
@@ -33,6 +35,7 @@ impl<'a> RequestTabComponent<'a> {
             req_tabs: ReqTabs::new(),
             new_param: KV::new(),
             new_header: KV::new(),
+            body_view: TextArea::new(),
         }
     }
     pub fn update_inner_focus(&mut self) {
@@ -105,22 +108,20 @@ impl<'a> RequestTabComponent<'a> {
                     }
                 }
             }
-            Focus::Body => match event.key {
-                Key::Char(x) => {
-                    req.add_to_body(x);
-                }
-                Key::Backspace => {
-                    req.remove_from_body();
-                }
-                _ => (),
-            },
+            Focus::Body => {
+                self.body_view.update(&event);
+            }
             Focus::None => (),
         }
     }
     pub fn is_focused(&self) -> bool {
         self.focused
     }
-    pub fn lose_focus(&mut self) {
+    pub fn lose_focus(&mut self, request: &mut Request) {
+        request.set_body(Body {
+            payload: Some(self.body_view.get_content()),
+            kind: BodyKind::JSON,
+        });
         self.focused = false;
     }
     pub fn gain_focus(&mut self) {
@@ -129,7 +130,7 @@ impl<'a> RequestTabComponent<'a> {
     pub fn draw(&self, f: &mut Frame, request: &Request, rect: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(20), Constraint::Percentage(80)])
+            .constraints([Constraint::Percentage(10), Constraint::Percentage(90)])
             .split(rect);
 
         f.render_widget(
@@ -139,7 +140,7 @@ impl<'a> RequestTabComponent<'a> {
                     .iter()
                     .map(|t| Span::from(t.to_string()))
                     .collect(),
-                "Request data tabs",
+                Some("Request Data"),
                 self.req_tabs.active_idx(),
                 self.focused,
             ),
@@ -153,21 +154,29 @@ impl<'a> RequestTabComponent<'a> {
                             .direction(Direction::Vertical)
                             .constraints([Constraint::Percentage(80), Constraint::Percentage(20)])
                             .split(chunks[1]);
-                        render_items(f, &request.headers(), Some(0), self.focused, chunksVer[0]);
+                        render_items(
+                            f,
+                            "Headers",
+                            &request.headers(),
+                            Some(0),
+                            self.focused,
+                            chunksVer[0],
+                        );
                         self.new_header.draw(f, chunksVer[1]);
                     }
                     _ => {
-                        render_items(f, &request.headers(), Some(0), self.focused, chunks[1]);
+                        render_items(
+                            f,
+                            "Headers",
+                            &request.headers(),
+                            Some(0),
+                            self.focused,
+                            chunks[1],
+                        );
                     }
                 };
             }
-            RequestTabOptions::Body(_, _) => f.render_widget(
-                Paragraph::new(request.body().to_string()).block(default_block(
-                    "Body",
-                    self.focused && matches!(self.focus, Focus::Body),
-                )),
-                chunks[1],
-            ),
+            RequestTabOptions::Body(_, _) => self.body_view.draw(f, chunks[1]),
             RequestTabOptions::Params(_, _) => {
                 match self.focus {
                     Focus::NewParamKV => {
@@ -175,11 +184,25 @@ impl<'a> RequestTabComponent<'a> {
                             .direction(Direction::Vertical)
                             .constraints([Constraint::Percentage(80), Constraint::Percentage(20)])
                             .split(chunks[1]);
-                        render_items(f, &request.params(), Some(0), self.focused, chunksVer[0]);
+                        render_items(
+                            f,
+                            "Params",
+                            &request.params(),
+                            Some(0),
+                            self.focused,
+                            chunksVer[0],
+                        );
                         self.new_param.draw(f, chunksVer[1]);
                     }
                     _ => {
-                        render_items(f, &request.params(), Some(0), self.focused, chunks[1]);
+                        render_items(
+                            f,
+                            "Params",
+                            &request.params(),
+                            Some(0),
+                            self.focused,
+                            chunks[1],
+                        );
                     }
                 };
             }
@@ -189,6 +212,7 @@ impl<'a> RequestTabComponent<'a> {
 
 fn render_items(
     f: &mut Frame,
+    block_title: &str,
     items: &Option<Vec<(String, String, bool)>>,
     selected: Option<usize>,
     focused: bool,
@@ -219,7 +243,7 @@ fn render_items(
         );
     }
     f.render_widget(
-        Paragraph::new("Req Headers").block(default_block("headers", focused)),
+        Paragraph::new("").block(default_block(Some(block_title), focused)),
         rect,
     );
 }

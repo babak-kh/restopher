@@ -1,33 +1,146 @@
+use crate::components::{default_block, tabs};
+use crate::environments::Environment;
+use crate::keys::keys::{Event, Key, Modifier};
+use crate::layout::centered_rect;
+use crate::request::Request;
+use ratatui::widgets::Clear;
 use ratatui::{
-    layout::Rect,
-    style::{Color, Modifier, Style},
+    layout::{Constraint, Layout, Rect},
+    style::{Color, Style},
     text::Span,
-    widgets::{List, ListItem, ListState},
+    widgets::{List, ListItem, ListState, Paragraph},
     Frame,
 };
 
-use crate::{
-    components::{default_block, tabs},
-    request::Request,
-};
+use super::PopUpComponent;
+
+enum focus {
+    Env,
+    Requests,
+}
+impl focus {
+    fn next(&mut self) {
+        match self {
+            focus::Env => *self = focus::Requests,
+            focus::Requests => *self = focus::Env,
+        }
+    }
+}
 
 pub struct RequestsComponent {
-    selected: Option<usize>,
     is_focused: bool,
+    focus: focus,
+    popup: Option<PopUpComponent>,
 }
 
 impl RequestsComponent {
     pub fn new(names: Vec<String>, idx: usize) -> Self {
         Self {
-            selected: None,
             is_focused: false,
+            focus: focus::Requests,
+            popup: None,
         }
     }
     pub fn is_focused(&self) -> bool {
         self.is_focused
     }
-    pub fn update(&mut self) {
-        println!("update");
+    pub fn update(
+        &mut self,
+        requests: &mut Vec<Request>,
+        request_index: &mut usize,
+        environments: &mut Vec<Environment>,
+        environment_index: &mut usize,
+        event: &Event,
+    ) {
+        if let Some(popup) = &mut self.popup {
+            let result = popup.update(event);
+            if result.1 {
+                return;
+            };
+            self.popup = None;
+            if let Some(rename) = result.0 {
+                requests[*request_index].set_name(rename);
+            };
+        };
+        match event.key {
+            Key::Tab => {
+                self.focus.next();
+                return;
+            }
+            _ => (),
+        }
+        match self.focus {
+            focus::Env => match event.key {
+                Key::Down => {
+                    if *environment_index < environments.len() {
+                        *environment_index += 1;
+                    }
+                    if *environment_index == environments.len() {
+                        *environment_index = 0;
+                    }
+                }
+                Key::Up => {
+                    if *environment_index == 0 {
+                        *environment_index = environments.len() - 1;
+                        return;
+                    }
+                    *environment_index -= 1;
+                }
+                _ => (),
+            },
+            focus::Requests => {
+                if let Some(modifier) = &event.modifier {
+                    match modifier {
+                        Modifier::Control => match event.key {
+                            Key::Char('d') => {
+                                if requests.len() == 1 {
+                                    return;
+                                }
+                                requests.remove(*request_index);
+                                if *request_index == requests.len() {
+                                    *request_index -= 1;
+                                }
+                            }
+                            Key::Char('n') => {
+                                requests.push(Request::new());
+                                *request_index = requests.len() - 1;
+                            }
+                            _ => (),
+                        },
+                        Modifier::Alt => match event.key {
+                            Key::Char('r') => {
+                                self.popup = Some(PopUpComponent::new(
+                                    "Rename".to_string(),
+                                    "Rename Request".to_string(),
+                                    None,
+                                    None,
+                                ));
+                            }
+                            _ => (),
+                        },
+                        _ => (),
+                    }
+                };
+                match event.key {
+                    Key::Char('h') => {
+                        if *request_index == requests.len() - 1 {
+                            *request_index = 0;
+                            return;
+                        }
+                        *request_index -= 1;
+                    }
+                    Key::Char('l') => {
+                        if *request_index < requests.len() - 1 {
+                            *request_index += 1;
+                        }
+                        if *request_index == requests.len() - 1 {
+                            *request_index = 0;
+                        }
+                    }
+                    _ => (),
+                };
+            }
+        }
     }
     pub fn focus(&mut self) {
         self.is_focused = true;
@@ -41,15 +154,37 @@ impl RequestsComponent {
     pub fn blur(&mut self) {
         self.is_focused = false;
     }
-    pub fn draw(&self, f: &mut Frame, names: Vec<String>, selected: usize, rect: Rect) {
+    pub fn draw(
+        &self,
+        f: &mut Frame,
+        names: Vec<String>,
+        env_name: String,
+        selected: usize,
+        rect: Rect,
+    ) {
+        let chunks =
+            Layout::horizontal(vec![Constraint::Percentage(90), Constraint::Percentage(10)])
+                .split(rect);
         f.render_widget(
             tabs(
                 names.iter().map(|t| Span::from(t.to_string())).collect(),
-                "requests",
+                Some("Requests"),
                 selected,
-                self.is_focused,
+                self.is_focused && matches!(self.focus, focus::Requests),
             ),
-            rect,
+            chunks[0],
         );
+        f.render_widget(
+            Paragraph::new(env_name).block(default_block(
+                Some("Environment"),
+                self.is_focused && matches!(self.focus, focus::Env),
+            )),
+            chunks[1],
+        );
+        if let Some(popup) = &self.popup {
+            let r = centered_rect(60, 20, f.size());
+            f.render_widget(Clear, r);
+            popup.draw(f, r);
+        }
     }
 }

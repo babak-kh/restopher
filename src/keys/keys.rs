@@ -43,6 +43,10 @@ pub const CLOSE_ENVIRONMENTS: &Event = &Event {
     modifier: None,
     key: Key::Esc,
 };
+pub const NEW_ENVIRONMENT: &Event = &Event {
+    modifier: Some(Modifier::Alt),
+    key: Key::Char('n'),
+};
 
 pub const NAV_UP: &Event = &Event {
     modifier: Some(Modifier::Control),
