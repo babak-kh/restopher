@@ -2,11 +2,10 @@ use std::fs;
 
 use crate::{
     keys::keys::{Event, Key},
-    request::Request,
 };
 use ratatui::{
     style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Clear, Scrollbar, ScrollbarOrientation},
+    widgets::{Block, Clear, Scrollbar, ScrollbarOrientation},
     Frame,
 };
 use tui_tree_widget::{Tree, TreeItem, TreeState};

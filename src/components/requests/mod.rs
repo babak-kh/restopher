@@ -6,9 +6,8 @@ use crate::request::Request;
 use ratatui::widgets::Clear;
 use ratatui::{
     layout::{Constraint, Layout, Rect},
-    style::{Color, Style},
     text::Span,
-    widgets::{List, ListItem, ListState, Paragraph},
+    widgets::{Paragraph},
     Frame,
 };
 

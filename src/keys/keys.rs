@@ -1,4 +1,4 @@
-use crossterm::event::{self, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 #[derive(PartialEq, Eq, Debug)]
 pub enum Modifier {

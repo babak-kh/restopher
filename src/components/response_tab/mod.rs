@@ -2,8 +2,8 @@ mod response_tab;
 mod view;
 
 use crate::{
-    components::{default_block, tabs},
-    keys::keys::{Event, Key, Modifier},
+    components::{default_block, tabs, text_area::TextArea},
+    keys::keys::Event,
     request::Request,
 };
 
@@ -144,12 +144,7 @@ impl ResponseTabComponent {
             ResponseOptions::Body(_, _) => {
                 if let Some(resp) = &req.response() {
                     if let Some(body) = &resp.body {
-                        f.render_widget(
-                            Paragraph::new(body.to_string())
-                                .block(default_block(Some("Response Body"), self.is_focused))
-                                .wrap(Wrap { trim: false }),
-                            chunks[2],
-                        );
+                        TextArea::from(&TextArea::from(body).format_json().0).draw(f, chunks[2])
                     } else {
                         f.render_widget(
                             Paragraph::new("No Body")

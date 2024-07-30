@@ -11,8 +11,7 @@ use crate::{
         AddressBarComponent, RequestTabComponent, RequestsComponent, ResponseTabComponent,
     },
     keys::keys::{
-        is_navigation, is_quit, transform, Event as AppEvent, CLOSE_COLLECTIONS,
-        CLOSE_ENVIRONMENTS, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP, NEW_ENVIRONMENT,
+        is_navigation, is_quit, transform, Event as AppEvent, CLOSE_COLLECTIONS, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP,
         OPEN_COLLECTIONS, OPEN_ENVIRONMENTS,
     },
 };
@@ -123,7 +122,7 @@ impl<'a> App<'a> {
         if all_envs.len() == 0 {
             all_envs.push(Environment::new("default".to_string()));
         }
-        let mut requests = vec![super::request::Request::new()];
+        let requests = vec![super::request::Request::new()];
         let names = requests.iter().map(|r| r.name()).collect();
         let cols = Collection::default(format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH));
         App {
@@ -405,7 +404,7 @@ impl<'a> App<'a> {
         let current_request = &self.requests[self.current_request_idx];
         let mut addr = String::new();
         let mut params = HashMap::new();
-        let mut headers = HeaderMap::try_from(&self.replace_envs(current_request.handle_headers()))
+        let headers = HeaderMap::try_from(&self.replace_envs(current_request.handle_headers()))
             .unwrap_or(HeaderMap::new());
         let mut body = None;
         params = self.replace_envs(current_request.handle_params());

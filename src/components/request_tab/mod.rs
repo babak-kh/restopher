@@ -4,7 +4,6 @@ mod view;
 use crate::request::{Body, BodyKind};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::Style,
     text::Span,
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
     Frame,
