@@ -1,7 +1,8 @@
 use std::fs;
 
 use crate::{
-    keys::keys::{Event, Key},
+    components::YesNoPopupComponent,
+    keys::keys::{Event, Key, Modifier as keyModifier},
 };
 use ratatui::{
     style::{Color, Modifier, Style},
@@ -28,6 +29,7 @@ impl Node {
 pub struct Collection<'a> {
     state: TreeState<String>,
     items: TreeItem<'a, String>,
+    pop_up: Option<YesNoPopupComponent<'a>>,
 }
 
 impl<'a> Collection<'a> {
@@ -36,6 +38,7 @@ impl<'a> Collection<'a> {
         Self {
             state: TreeState::default(),
             items,
+            pop_up: None,
         }
     }
     fn create_tree(node: Node, mut depth: usize) -> Option<TreeItem<'a, String>> {
@@ -81,7 +84,10 @@ impl<'a> Collection<'a> {
             )
             .highlight_symbol(">> ");
         frame.render_widget(Clear, area);
-        frame.render_stateful_widget(widget, area, &mut self.state) //, &mut self.state)
+        frame.render_stateful_widget(widget, area, &mut self.state);
+        if let Some(popup) = &self.pop_up {
+            popup.draw(frame);
+        };
     }
     pub fn get_selected(&self) -> Vec<String> {
         self.state
@@ -91,6 +97,24 @@ impl<'a> Collection<'a> {
             .collect()
     }
     pub fn update(&mut self, event: &Event) -> Option<Vec<String>> {
+        if let Some(popup) = &mut self.pop_up {
+            if let Some(result) = popup.update(event) {
+                self.pop_up = None;
+                return Some(vec![result.to_string()]);
+            }
+            return None;
+        }
+        if let Some(modifier) = &event.modifier {
+            match modifier {
+                keyModifier::Control => match event.key {
+                    Key::Char('d') => {
+                        self.pop_up = Some(YesNoPopupComponent::new("Delete?"));
+                    }
+                    _ => (),
+                },
+                _ => (),
+            }
+        }
         match event.key {
             Key::Enter => {
                 let selected = self.get_selected();
