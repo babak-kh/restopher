@@ -20,6 +20,7 @@ use view::Focus;
 pub struct ResponseTabComponent {
     focus: Focus,
     is_focused: bool,
+    body_view: TextArea,
     resp_tabs: response_tab::RespTabs<'static>,
 }
 
@@ -32,6 +33,7 @@ impl ResponseTabComponent {
             focus: Focus::None,
             is_focused: false,
             resp_tabs: response_tab::RespTabs::new(),
+            body_view: TextArea::new(),
         }
     }
     pub fn update_inner_focus(&mut self) {
@@ -44,6 +46,9 @@ impl ResponseTabComponent {
             Focus::Header(_) => todo!(),
             Focus::Body => todo!(),
         }
+    }
+    pub fn set_body(&mut self, body: &String) {
+        self.body_view = TextArea::from(&body.clone());
     }
     pub fn lose_focus(&mut self) {
         self.is_focused = false;
