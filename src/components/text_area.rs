@@ -48,6 +48,9 @@ impl TextArea {
     pub fn set_focus(&mut self, focus: bool) {
         self.is_focused = focus;
     }
+    pub fn lose_focus(&mut self) {
+        self.is_focused = false;
+    }
     pub fn new_line(&mut self) {
         if self.cursor_pos.1 == self.lines.len() - 1 {
             self.lines.push(String::new());

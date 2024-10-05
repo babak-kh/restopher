@@ -122,6 +122,7 @@ impl<'a> RequestTabComponent<'a> {
             kind: BodyKind::JSON,
         });
         self.focused = false;
+        self.body_view.lose_focus();
     }
     pub fn gain_focus(&mut self) {
         self.focused = true;
