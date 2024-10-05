@@ -4,7 +4,6 @@ mod view;
 use crate::request::{Body, BodyKind};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::Style,
     text::Span,
     widgets::{Block, Borders, Cell, Paragraph, Row, Table},
     Frame,
@@ -123,6 +122,7 @@ impl<'a> RequestTabComponent<'a> {
             kind: BodyKind::JSON,
         });
         self.focused = false;
+        self.body_view.lose_focus();
     }
     pub fn gain_focus(&mut self) {
         self.focused = true;

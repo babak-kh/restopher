@@ -11,9 +11,8 @@ use crate::{
         AddressBarComponent, RequestTabComponent, RequestsComponent, ResponseTabComponent,
     },
     keys::keys::{
-        is_navigation, is_quit, transform, Event as AppEvent, CLOSE_COLLECTIONS,
-        CLOSE_ENVIRONMENTS, NAV_DOWN, NAV_LEFT, NAV_RIGHT, NAV_UP, NEW_ENVIRONMENT,
-        OPEN_COLLECTIONS, OPEN_ENVIRONMENTS,
+        is_navigation, is_quit, transform, Event as AppEvent, CLOSE_COLLECTIONS, NAV_DOWN,
+        NAV_LEFT, NAV_RIGHT, NAV_UP, OPEN_COLLECTIONS, OPEN_ENVIRONMENTS,
     },
 };
 
@@ -123,7 +122,7 @@ impl<'a> App<'a> {
         if all_envs.len() == 0 {
             all_envs.push(Environment::new("default".to_string()));
         }
-        let mut requests = vec![super::request::Request::new()];
+        let requests = vec![super::request::Request::new()];
         let names = requests.iter().map(|r| r.name()).collect();
         let cols = Collection::default(format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH));
         App {
@@ -245,43 +244,8 @@ impl<'a> App<'a> {
                     };
                     if let Some(paths) = self.collections.update(&even) {
                         self.main_window = MainWindows::Main;
-                        if let Some(path) = paths.last() {
-                            match fs::metadata(path.clone()) {
-                                Ok(f) => {
-                                    if f.is_file() {
-                                        self.requests.push(
-                                            serde_json::from_reader(
-                                                fs::File::open(path.clone()).unwrap(),
-                                            )
-                                            .unwrap(),
-                                        );
-                                    }
-                                    if f.is_dir() {
-                                        for entry in fs::read_dir(path.clone()).unwrap() {
-                                            let entry = entry.unwrap();
-                                            match entry.path().extension() {
-                                                Some(ext) => {
-                                                    if ext == "rph" {
-                                                        self.requests.push(
-                                                            serde_json::from_reader(
-                                                                fs::File::open(entry.path())
-                                                                    .unwrap(),
-                                                            )
-                                                            .unwrap(),
-                                                        );
-                                                    }
-                                                }
-                                                None => continue,
-                                            }
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    self.error_pop_up = (true, Some(Error::FileOperationsErr(e)));
-                                }
-                            };
-                        }
-                    };
+                        self.modify_collection(paths);
+                    }
                 }
                 _ => (),
             };
@@ -405,7 +369,7 @@ impl<'a> App<'a> {
         let current_request = &self.requests[self.current_request_idx];
         let mut addr = String::new();
         let mut params = HashMap::new();
-        let mut headers = HeaderMap::try_from(&self.replace_envs(current_request.handle_headers()))
+        let headers = HeaderMap::try_from(&self.replace_envs(current_request.handle_headers()))
             .unwrap_or(HeaderMap::new());
         let mut body = None;
         params = self.replace_envs(current_request.handle_params());
@@ -559,6 +523,40 @@ impl<'a> App<'a> {
             NAV_LEFT => (),
             NAV_RIGHT => (),
             _ => (),
+        }
+    }
+    fn modify_collection(&mut self, paths: Vec<String>) {
+        if let Some(path) = paths.last() {
+            match fs::metadata(path.clone()) {
+                Ok(f) => {
+                    if f.is_file() {
+                        self.requests.push(
+                            serde_json::from_reader(fs::File::open(path.clone()).unwrap()).unwrap(),
+                        );
+                    }
+                    if f.is_dir() {
+                        for entry in fs::read_dir(path.clone()).unwrap() {
+                            let entry = entry.unwrap();
+                            match entry.path().extension() {
+                                Some(ext) => {
+                                    if ext == "rph" {
+                                        self.requests.push(
+                                            serde_json::from_reader(
+                                                fs::File::open(entry.path()).unwrap(),
+                                            )
+                                            .unwrap(),
+                                        );
+                                    }
+                                }
+                                None => continue,
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    self.error_pop_up = (true, Some(Error::FileOperationsErr(e)));
+                }
+            };
         }
     }
 }

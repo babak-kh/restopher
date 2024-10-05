@@ -1,13 +1,12 @@
 use copypasta::{ClipboardContext, ClipboardProvider};
 use ratatui::{
     layout::{Constraint, Layout, Margin, Rect},
-    style::{Color, Modifier, Style},
-    text::{Line, Span, Text},
-    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
+    style::{Color, Style},
+    text::{Line, Span},
+    widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
     Frame,
 };
 use serde_json::Value;
-use tracing::trace;
 
 use crate::{
     components::default_block,
@@ -36,7 +35,7 @@ impl TextArea {
             is_focused: true,
         }
     }
-    pub fn from(s: String) -> Self {
+    pub fn from(s: &String) -> Self {
         let len = s.len();
 
         TextArea {
@@ -48,6 +47,9 @@ impl TextArea {
     }
     pub fn set_focus(&mut self, focus: bool) {
         self.is_focused = focus;
+    }
+    pub fn lose_focus(&mut self) {
+        self.is_focused = false;
     }
     pub fn new_line(&mut self) {
         if self.cursor_pos.1 == self.lines.len() - 1 {
@@ -203,7 +205,7 @@ impl TextArea {
         }
     }
 
-    fn format_json(&self) -> (String, String) {
+    pub fn format_json(&self) -> (String, String) {
         match self.kind {
             Kind::Plain => (self.lines.clone().join("\n"), String::from("")),
             Kind::Json => serde_json::from_str(&self.lines.clone().join("\n")).map_or_else(
@@ -211,7 +213,7 @@ impl TextArea {
                     let mut error = String::from("");
                     error.push_str("Error: ");
                     error.push_str(e.to_string().as_str());
-                    (String::new(), error)
+                    (self.lines.join("\n"), error)
                 },
                 |data: Value| {
                     let content = serde_json::to_string_pretty(&data).unwrap();
@@ -220,7 +222,7 @@ impl TextArea {
             ),
         }
     }
-    fn format_json_mut(&mut self) {
+    pub fn format_json_mut(&mut self) {
         let (formatted, error) = self.format_json();
         if !error.is_empty() {
             return;

@@ -3,7 +3,7 @@ mod view;
 
 use super::default_block;
 use crate::{
-    keys::keys::{Event, Key, Modifier},
+    keys::keys::{Event, Key},
     request::Request,
 };
 use ratatui::{
