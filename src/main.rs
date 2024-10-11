@@ -10,7 +10,7 @@ mod request;
 mod styles;
 
 use request::Request;
-use std::{io};
+use std::io;
 use tokio;
 
 use crossterm::{
@@ -31,7 +31,7 @@ async fn main() -> Result<(), io::Error> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let app = app::App::new();
-    let res = app.run(&mut terminal).await;
+    app.run(&mut terminal).await;
     disable_raw_mode()?;
     execute!(
         terminal.backend_mut(),

@@ -4,7 +4,6 @@ use crate::keys::keys::{Event, Key, Modifier};
 pub enum MainWindows {
     Main,
     Environments,
-    Settings,
     Collections,
 }
 

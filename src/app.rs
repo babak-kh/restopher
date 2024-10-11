@@ -1,10 +1,11 @@
 use crate::{
-    collection::Collection,
+    collection::{Action, Collection},
     components::error_popup,
     environments::{self, Environment, TempEnv},
     layout,
     main_windows::{key_registry, ChangeEvent, MainWindows},
     request::HttpVerb,
+    trace_dbg,
 };
 use crate::{
     components::{
@@ -24,7 +25,7 @@ use serde_json::{self};
 use std::{
     collections::{hash_map::RandomState, HashMap},
     fs,
-    io::{BufReader, Read, Write},
+    io::{BufReader, Error as ioError, Read, Write},
     str::from_utf8,
 };
 
@@ -61,6 +62,18 @@ impl Error {
         }
     }
 }
+
+impl From<ioError> for Error {
+    fn from(e: ioError) -> Self {
+        Error::FileOperationsErr(e)
+    }
+}
+impl From<serde_json::Error> for Error {
+    fn from(e: serde_json::Error) -> Self {
+        Error::JsonErr(e)
+    }
+}
+
 pub struct App<'a> {
     client: reqwest::Client,
     requests: Vec<super::request::Request>,
@@ -83,45 +96,7 @@ pub struct App<'a> {
 
 impl<'a> App<'a> {
     pub fn new() -> Self {
-        let mut all_envs = match fs::File::open(format!("{}/{}", DATA_DIRECTORY, ENV_PATH)) {
-            Ok(f) => {
-                if f.metadata().unwrap().is_dir() {
-                    let mut result = Vec::<Environment>::new();
-                    for entry in fs::read_dir(format!("{}/{}", DATA_DIRECTORY, ENV_PATH)).unwrap() {
-                        let entry = entry.unwrap();
-                        match entry.path().extension() {
-                            Some(ext) => {
-                                if ext == "env" {
-                                    result.push(
-                                        serde_json::from_reader(
-                                            fs::File::open(entry.path()).unwrap(),
-                                        )
-                                        .unwrap(),
-                                    );
-                                };
-                            }
-                            None => (),
-                        };
-                    }
-                    result
-                } else {
-                    let mut reader = BufReader::new(f);
-                    let mut buffer = Vec::new();
-                    reader.read_to_end(&mut buffer).unwrap();
-                    serde_json::from_str(from_utf8(&buffer).unwrap()).unwrap()
-                }
-            }
-            Err(e) => {
-                match e.kind() {
-                    std::io::ErrorKind::NotFound => (),
-                    _ => (),
-                };
-                Vec::new()
-            }
-        };
-        if all_envs.len() == 0 {
-            all_envs.push(Environment::new("default".to_string()));
-        }
+        let all_envs = App::load_envs().unwrap();
         let requests = vec![super::request::Request::new()];
         let names = requests.iter().map(|r| r.name()).collect();
         let cols = Collection::default(format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH));
@@ -148,131 +123,140 @@ impl<'a> App<'a> {
             requests_component: RequestsComponent::new(names, 0),
         }
     }
-    pub fn reload_envs(&mut self) {
-        self.all_envs = match fs::File::open(format!("{}/{}", DATA_DIRECTORY, ENV_PATH)) {
+    pub fn load_envs() -> Result<Vec<Environment>, Error> {
+        let path = format!("{}/{}", DATA_DIRECTORY, ENV_PATH);
+        let file = fs::File::open(&path);
+        match file {
             Ok(f) => {
-                if f.metadata().unwrap().is_dir() {
+                if f.metadata()?.is_dir() {
                     let mut result = Vec::<Environment>::new();
-                    for entry in fs::read_dir(format!("{}/{}", DATA_DIRECTORY, ENV_PATH)).unwrap() {
-                        let entry = entry.unwrap();
+                    for entry in fs::read_dir(path)? {
+                        let entry = entry?;
                         match entry.path().extension() {
                             Some(ext) => {
                                 if ext == "env" {
-                                    result.push(
-                                        serde_json::from_reader(
-                                            fs::File::open(entry.path()).unwrap(),
-                                        )
-                                        .unwrap(),
-                                    );
+                                    result.push(serde_json::from_reader(fs::File::open(
+                                        entry.path(),
+                                    )?)?);
                                 };
                             }
                             None => (),
                         };
                     }
-                    result
+                    Ok(result)
                 } else {
                     let mut reader = BufReader::new(f);
                     let mut buffer = Vec::new();
-                    reader.read_to_end(&mut buffer).unwrap();
-                    serde_json::from_str(from_utf8(&buffer).unwrap()).unwrap()
+                    reader.read_to_end(&mut buffer)?;
+                    Ok(serde_json::from_str(from_utf8(&buffer).unwrap())?)
                 }
             }
-            Err(e) => {
-                match e.kind() {
-                    std::io::ErrorKind::NotFound => (),
-                    _ => (),
-                };
-                Vec::new()
-            }
-        };
+            Err(e) => match e.kind() {
+                std::io::ErrorKind::NotFound => Ok(vec![Environment::new("default".to_string())]),
+                _ => Err(Error::FileOperationsErr(e)),
+            },
+        }
+    }
+    pub fn reload_envs(&mut self) -> Result<(), Error> {
+        self.all_envs = Self::load_envs()?;
+        Ok(())
     }
     pub async fn run<B: Backend>(mut self, term: &mut Terminal<B>) -> () {
         term.draw(|f| self.ui(f)).unwrap();
         loop {
             match self.update().await {
-                Some(s) => {
-                    if s == "quit" {
-                        break;
+                Ok(ss) => {
+                    if let Some(s) = ss {
+                        if s == "quit" {
+                            break;
+                        }
                     }
                 }
-                None => (),
+                Err(e) => {
+                    self.error_pop_up = (true, Some(e));
+                }
             }
             term.draw(|f| self.ui(f)).unwrap();
         }
     }
-    pub async fn update(&mut self) -> Option<String> {
+    pub async fn update(&mut self) -> Result<Option<String>, Error> {
         if let Event::Key(key) = event::read().unwrap() {
             let even = transform(key);
             if is_quit(&even) {
-                return Some("quit".to_string());
+                return Ok(Some("quit".to_string()));
             }
             if is_navigation(&even) && matches!(self.main_window, MainWindows::Main) {
                 self.navigation(&even);
-                return None;
+                return Ok(None);
             }
             match self.main_window {
                 MainWindows::Main => {
                     if matches!(&even, OPEN_COLLECTIONS) {
                         self.main_window = MainWindows::Collections;
-                        return None;
+                        return Ok(None);
                     };
                     if matches!(&even, OPEN_ENVIRONMENTS) {
                         self.main_window = MainWindows::Environments;
                         self.temp_envs =
                             Some(TempEnv::new(self.all_envs.clone(), self.current_env_idx));
-                        return None;
+                        return Ok(None);
                     }
                 }
                 MainWindows::Environments => {
                     if let Some(temp) = &mut self.temp_envs {
                         let result = temp.update(&even);
                         if result.1 {
-                            return None;
+                            return Ok(None);
                         }
                         self.main_window = MainWindows::Main;
                         if let Some(modified_env) = result.0 {
                             App::save_env(modified_env).unwrap();
-                            self.reload_envs();
+                            self.reload_envs()?;
                         }
-                        return None;
+                        return Ok(None);
                     }
                 }
                 MainWindows::Collections => {
                     if &even == CLOSE_COLLECTIONS {
                         self.main_window = MainWindows::Main;
-                        return None;
+                        return Ok(None);
                     };
-                    if let Some(paths) = self.collections.update(&even) {
+                    if let Some((action, paths)) = self.collections.update(&even) {
                         self.main_window = MainWindows::Main;
-                        self.modify_collection(paths);
+                        trace_dbg!(level:tracing::Level::INFO, (&action, "aaaaaaaaaaa",&paths));
+                        match action {
+                            Action::Delete => self.delete_request(paths)?,
+                            Action::Create => self.create_new_collection(paths)?,
+                            Action::AddRequest => self.modify_collection(paths)?,
+                        };
+                        self.reload_collections()
                     }
                 }
-                _ => (),
             };
             match key_registry(&even, &self.main_window) {
                 ChangeEvent::ChangeRequestTab => {
                     self.req_tabs.update_inner_focus();
-                    return None;
+                    return Ok(None);
                 }
                 ChangeEvent::ChangeResponseTab => {
                     self.resp_tabs.update_inner_focus();
-                    return None;
+                    return Ok(None);
                 }
                 ChangeEvent::SaveRequest => {
-                    self.save_current_req().unwrap();
-                    return None;
+                    self.save_current_req()?;
+                    return Ok(None);
                 }
                 ChangeEvent::NewRequest => {
                     self.new_request();
-                    return None;
+                    return Ok(None);
                 }
                 ChangeEvent::PreRequest => {
                     self.pre_req();
-                    return None;
+                    return Ok(None);
                 }
                 ChangeEvent::NextRequest => {
                     self.next_req();
-                    return None;
+                    return Ok(None);
                 }
                 ChangeEvent::CallRequest => {
                     match self.call_request().await {
@@ -281,24 +265,24 @@ impl<'a> App<'a> {
                             self.error_pop_up = (true, Some(e));
                         }
                     }
-                    return None;
+                    return Ok(None);
                 }
                 ChangeEvent::NoChange => (),
             }
             if self.req_tabs.is_focused() {
                 self.req_tabs
                     .update(&mut self.requests[self.current_request_idx], even);
-                return None;
+                return Ok(None);
             }
             if self.address_bar.is_focused() {
                 self.address_bar
                     .update(&mut self.requests[self.current_request_idx], &even);
-                return None;
+                return Ok(None);
             }
             if self.resp_tabs.is_focused() {
                 self.resp_tabs
                     .update(&mut self.requests[self.current_request_idx], &even);
-                return None;
+                return Ok(None);
             }
             if self.requests_component.is_focused() {
                 self.requests_component.update(
@@ -308,15 +292,17 @@ impl<'a> App<'a> {
                     &mut self.current_env_idx,
                     &even,
                 );
-                return None;
+                return Ok(None);
             }
-            return None;
+            return Ok(None);
         }
-        return None;
+        return Ok(None);
+    }
+    fn reload_collections(&mut self) {
+        self.collections = Collection::default(format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH));
     }
     fn ui(&mut self, f: &mut Frame) {
-        let lay = layout::AppLayout::new(f.size());
-
+        let lay = layout::AppLayout::new(f.area());
         self.req_tabs
             .draw(f, &self.requests[self.current_request_idx], lay.request);
         self.resp_tabs
@@ -340,11 +326,11 @@ impl<'a> App<'a> {
         }
         if matches!(self.main_window, MainWindows::Environments) {
             if let Some(temp) = &mut self.temp_envs {
-                temp.draw(f, f.size());
+                temp.draw(f, f.area());
             }
         }
         if self.error_pop_up.0 {
-            error_popup(f, &self.error_pop_up.1.as_ref().unwrap(), f.size());
+            error_popup(f, &self.error_pop_up.1.as_ref().unwrap(), f.area());
             self.error_pop_up.0 = false;
         }
     }
@@ -525,41 +511,88 @@ impl<'a> App<'a> {
             _ => (),
         }
     }
-    fn modify_collection(&mut self, paths: Vec<String>) {
+    fn delete_request(&mut self, paths: Vec<String>) -> Result<(), Error> {
         if let Some(path) = paths.last() {
             match fs::metadata(path.clone()) {
                 Ok(f) => {
                     if f.is_file() {
-                        self.requests.push(
-                            serde_json::from_reader(fs::File::open(path.clone()).unwrap()).unwrap(),
-                        );
-                    }
-                    if f.is_dir() {
-                        for entry in fs::read_dir(path.clone()).unwrap() {
-                            let entry = entry.unwrap();
+                        fs::remove_file(path.clone())?;
+                        return Ok(());
+                    } else {
+                        let mut is_empty = true;
+                        for entry in fs::read_dir(path.clone())? {
+                            let entry = entry?;
                             match entry.path().extension() {
                                 Some(ext) => {
                                     if ext == "rph" {
-                                        self.requests.push(
-                                            serde_json::from_reader(
-                                                fs::File::open(entry.path()).unwrap(),
-                                            )
-                                            .unwrap(),
-                                        );
+                                        fs::remove_file(entry.path())?;
                                     }
                                 }
-                                None => continue,
-                            }
+                                None => {
+                                    is_empty = false;
+                                    continue;
+                                }
+                            };
                         }
+                        if is_empty && *path != format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH) {
+                            fs::remove_dir(path.clone())?;
+                        }
+                        return Ok(());
                     }
                 }
                 Err(e) => {
                     self.error_pop_up = (true, Some(Error::FileOperationsErr(e)));
+                    return Ok(());
                 }
             };
         }
+        Err(Error::NoRequestErr(1))
+    }
+    fn modify_collection(&mut self, paths: Vec<String>) -> Result<(), Error> {
+        if let Some(path) = paths.last() {
+            match fs::metadata(path.clone()) {
+                Ok(f) => {
+                    if f.is_file() {
+                        self.requests
+                            .push(serde_json::from_reader(fs::File::open(path.clone())?)?);
+                        return Ok(());
+                    } else {
+                        for entry in fs::read_dir(path.clone())? {
+                            let entry = entry?;
+                            match entry.path().extension() {
+                                Some(ext) => {
+                                    if ext == "rph" {
+                                        self.requests.push(serde_json::from_reader(
+                                            fs::File::open(entry.path())?,
+                                        )?);
+                                    }
+                                }
+                                None => continue,
+                            };
+                        }
+                        return Ok(());
+                    }
+                }
+                Err(e) => {
+                    self.error_pop_up = (true, Some(Error::FileOperationsErr(e)));
+                    return Ok(());
+                }
+            };
+        }
+        Err(Error::NoRequestErr(1))
+    }
+
+    fn create_new_collection(&mut self, paths: Vec<String>) -> Result<(), Error> {
+        if let Some(path) = paths.last() {
+            trace_dbg!(level: tracing::Level::INFO, ("in creating", &paths));
+            fs::create_dir(path.clone())?;
+            return Ok(());
+        };
+        trace_dbg!(level: tracing::Level::INFO, ("in NONE", &paths));
+        return Err(Error::NoRequestErr(1));
     }
 }
+
 trait EnvReplacer {
     fn replace_env(self, pattern: &Regex, replace_kvs: &HashMap<String, String>) -> Self
     where

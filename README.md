@@ -10,8 +10,8 @@ A brief description of the project goes here.
 - **Target Completion Date**: YYYY-MM-DD
 
 #### Tasks:
-- [ ] Task 1: Description of task 1
-- [ ] Task 2: Description of task 2
+- [ ] Task 1: Ability to create and delete collections
+- [ ] Task 2: Ability to move requests in collections
 - [ ] Task 3: Description of task 3
 
 ### Milestone 2: [Title of Milestone 2]

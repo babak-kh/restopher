@@ -22,13 +22,15 @@ enum State {
 pub struct YesNoPopupComponent<'a> {
     state: State,
     msg: &'a str,
+    pub action: &'a str,
 }
 
 impl<'a> YesNoPopupComponent<'a> {
-    pub fn new(msg: &'a str) -> Self {
+    pub fn new(msg: &'a str, action: &'a str) -> Self {
         Self {
             state: State::Yes,
             msg,
+            action,
         }
     }
     pub fn update(&mut self, event: &Event) -> Option<bool> {
@@ -47,7 +49,7 @@ impl<'a> YesNoPopupComponent<'a> {
         None
     }
     pub fn draw(&self, frame: &mut Frame) {
-        let rect = centered_rect(40, 20, frame.size());
+        let rect = centered_rect(40, 20, frame.area());
         let chunks =
             Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(rect);
         let yes_no = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
