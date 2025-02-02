@@ -3,6 +3,7 @@ mod view;
 
 use super::default_block;
 use crate::{
+    components::text_box::TextBox,
     keys::keys::{Event, Key},
     request::Request,
 };
@@ -16,6 +17,7 @@ use view::Focus;
 pub struct AddressBarComponent {
     focus: Focus,
     is_focused: bool,
+    address_bar_view: TextBox,
 }
 
 impl AddressBarComponent {
@@ -23,6 +25,7 @@ impl AddressBarComponent {
         AddressBarComponent {
             focus: Focus::Address,
             is_focused: false,
+            address_bar_view: TextBox::new(),
         }
     }
     pub fn is_focused(&self) -> bool {
@@ -47,17 +50,13 @@ impl AddressBarComponent {
                     req.verb_down()
                 }
             }
-            Key::Char(x) => {
+            _ => {
                 if matches!(self.focus, Focus::Address) {
-                    req.add_to_address(x);
+                    self.address_bar_view.update(event);
+                    let content = self.address_bar_view.get_content();
+                    req.set_address(content);
                 }
             }
-            Key::Backspace => {
-                if matches!(self.focus, Focus::Address) {
-                    req.remove_from_address();
-                }
-            }
-            _ => (),
         }
     }
     pub fn draw(&self, f: &mut Frame, req: &Request, rect: Rect) {
@@ -74,14 +73,11 @@ impl AddressBarComponent {
                 .wrap(Wrap { trim: true }),
             chunks[0],
         );
-        f.render_widget(
-            Paragraph::new(req.address().as_str())
-                .block(default_block(
-                    Some("Address"),
-                    self.is_focused && matches!(self.focus, Focus::Address),
-                ))
-                .wrap(Wrap { trim: true }),
+        self.address_bar_view.draw(
+            f,
             chunks[1],
+            "Address",
+            self.is_focused && matches!(self.focus, Focus::Address),
         );
     }
 }

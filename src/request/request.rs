@@ -133,11 +133,14 @@ impl Request {
                 .push((key, value, active));
         }
     }
-    pub fn add_to_address(&mut self, c: char) {
-        self.address.push(c);
+    pub fn add_to_address(&mut self, c: char, idx: usize) {
+        self.address.insert(idx, c);
     }
-    pub fn remove_from_address(&mut self) {
-        self.address.pop();
+    pub fn set_address(&mut self, a: String) {
+        self.address = a;
+    }
+    pub fn remove_from_address(&mut self, idx: usize) {
+        self.address.remove(idx);
     }
     pub fn verb_up(&mut self) {
         self.verb = self.verb.up();
@@ -220,6 +223,9 @@ impl Request {
     pub fn handle_json_body(&self) -> Result<Option<serde_json::Value>, crate::app::Error> {
         match &self.body.payload {
             Some(data) => {
+                if data.is_empty() {
+                    return Ok(None);
+                }
                 serde_json::from_str(&*data.clone()).map_err(|e| crate::app::Error::JsonErr(e))
             }
             None => Ok(None),

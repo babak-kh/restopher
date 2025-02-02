@@ -360,7 +360,6 @@ impl<'a> App<'a> {
         let mut body = None;
         params = self.replace_envs(current_request.handle_params());
         addr = self.replace_envs(current_request.address().to_string());
-        body = current_request.handle_json_body()?;
         let resp: Response;
         match current_request.verb() {
             HttpVerb::GET => {
@@ -374,6 +373,7 @@ impl<'a> App<'a> {
                     .map_err(|e| Error::ReqwestErr(e))?;
             }
             HttpVerb::POST => {
+                body = current_request.handle_json_body()?;
                 let mut r = self.client.post(addr).query(&params).headers(headers);
                 if let Some(b) = body {
                     r = r.json(&b)
@@ -381,6 +381,7 @@ impl<'a> App<'a> {
                 resp = r.send().await.map_err(|e| Error::ReqwestErr(e))?;
             }
             HttpVerb::PUT => {
+                body = current_request.handle_json_body()?;
                 let mut r = self.client.put(addr).query(&params).headers(headers);
                 if let Some(b) = body {
                     r = r.json(&b)
