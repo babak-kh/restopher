@@ -1,8 +1,13 @@
-use std::collections::HashMap;
-
 use crate::request::body::{Body, BodyKind};
+use crate::trace_dbg;
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+#[derive(Debug, Serialize, Deserialize)]
+enum Error {
+    NotParsable,
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum HttpVerb {
@@ -164,28 +169,34 @@ impl Request {
         if let Some(resp) = &self.response {
             if let Some(body) = &resp.body {
                 let mut ct: Option<(&String, &String)> = None;
-                if let Some(ref res) = self.response {
-                    if let Some(headers) = &resp.headers {
-                        ct = headers
-                            .iter()
-                            .filter(|item| item.0 == "content-type")
-                            .last();
-                    };
-                    match ct {
-                        Some(content_type) => {
-                            if content_type.1.contains("application/json") {
+                if let Some(headers) = &resp.headers {
+                    ct = headers
+                        .iter()
+                        .filter(|item| item.0 == "content-type")
+                        .last();
+                };
+                trace_dbg!(level:tracing::Level::INFO, &ct);
+                match ct {
+                    Some(content_type) => {
+                        match content_type {
+                            _ if content_type.1.contains("application/json") => {
                                 return serde_json::to_string_pretty(
                                     &serde_json::from_str::<serde_json::Value>(&body.clone())
                                         .unwrap(),
                                 )
                                 .unwrap()
                                 .to_string();
-                            } else {
-                                return body.clone();
                             }
-                        }
-                        None => return body.clone(),
-                    };
+                            _ if content_type.1.contains("text/html") => {
+                                match deserialize_xml(body.clone()) {
+                                    Ok(data) => return data,
+                                    Err(_) => return body.clone(),
+                                }
+                            }
+                            _ => return body.clone(),
+                        };
+                    }
+                    None => return body.clone(),
                 };
             };
         };
@@ -298,4 +309,9 @@ impl Request {
             .map(|item| (item.0.clone(), item.1.clone()))
             .collect::<HashMap<String, String>>()
     }
+}
+
+fn deserialize_xml(content: String) -> Result<String, Error> {
+    let data = serde_xml_rs::from_str(&content).map_err(|_| Error::NotParsable)?;
+    data
 }

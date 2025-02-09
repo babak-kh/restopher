@@ -147,3 +147,10 @@ pub fn is_quit(e: &Event) -> bool {
 pub fn is_navigation(e: &Event) -> bool {
     e == NAV_UP || e == NAV_DOWN || e == NAV_LEFT || e == NAV_RIGHT
 }
+
+pub fn is_ctrl_v(e: &Event) -> bool {
+    is_modifier(e, vec![Modifier::Control]) && is_key(e, vec![Key::Char('v')])
+}
+pub fn is_ctrl_b(e: &Event) -> bool {
+    is_modifier(e, vec![Modifier::Control]) && is_key(e, vec![Key::Char('b')])
+}

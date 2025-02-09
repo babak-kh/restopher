@@ -1,10 +1,11 @@
 mod address;
+use copypasta::{ClipboardContext, ClipboardProvider};
 mod view;
 
 use super::default_block;
 use crate::{
     components::text_box::TextBox,
-    keys::keys::{Event, Key},
+    keys::keys::{is_ctrl_v, Event, Key},
     request::Request,
 };
 use ratatui::{
@@ -52,7 +53,13 @@ impl AddressBarComponent {
             }
             _ => {
                 if matches!(self.focus, Focus::Address) {
-                    self.address_bar_view.update(event);
+                    if is_ctrl_v(event) {
+                        let mut ctx = ClipboardContext::new().unwrap();
+                        self.address_bar_view
+                            .add_to_buffer(ctx.get_contents().unwrap());
+                    } else {
+                        self.address_bar_view.update(event);
+                    }
                     let content = self.address_bar_view.get_content();
                     req.set_address(content);
                 }

@@ -28,6 +28,10 @@ impl TextBox {
             cursor_pos: len,
         }
     }
+    pub fn add_to_buffer(&mut self, to_add: String) {
+        self.buffer.push_str(&to_add);
+        self.cursor_pos += to_add.len();
+    }
     pub fn clear(&mut self) {
         self.buffer.clear();
         self.cursor_pos = 0;

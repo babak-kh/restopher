@@ -1,4 +1,3 @@
-
 #[derive(Debug)]
 pub enum RequestTabOptions<'a> {
     Headers(usize, &'a str),
@@ -71,64 +70,4 @@ impl<'a> ReqTabs<'a> {
         }
         self.state -= 1;
     }
-    //   pub fn add_to_header(&mut self, key: String, value: String, active: bool) {
-    //       if let Some(ref mut h) = self.headers {
-    //           h.push((key, value, active));
-    //       } else {
-    //           self.headers = Some(vec![(key, value, active)])
-    //       }
-    //   }
-    //   pub fn delete_header(&mut self, idx: usize) {
-    //       if let Some(h) = &mut self.headers {
-    //           h.remove(idx);
-    //           if h.len() == 0 {
-    //               self.params = None;
-    //           }
-    //       }
-    //   }
-    //   pub fn active_deactive_header(&mut self, idx: usize) {
-    //       if let Some(h) = &mut self.headers {
-    //           h[idx].2 = !h[idx].2;
-    //       }
-    //   }
-
-    //   // body
-    //   pub fn add_to_req_body(&mut self, c: char) {
-    //       match &mut self.body.payload {
-    //           Some(s) => s.push(c),
-    //           None => self.body.payload = Some(c.to_string()),
-    //       }
-    //   }
-    //   pub fn remove_from_req_body(&mut self) {
-    //       match &mut self.body.payload {
-    //           Some(s) => {
-    //               s.pop();
-    //               if s.len() == 0 {
-    //                   self.body.payload = None;
-    //               }
-    //           }
-    //           None => (),
-    //       }
-    //   }
-    //   // params
-    //   pub fn add_to_param(&mut self, key: String, value: String, active: bool) {
-    //       if let Some(ref mut h) = self.params {
-    //           h.push((key, value, active));
-    //       } else {
-    //           self.params = Some(vec![(key, value, active)])
-    //       }
-    //   }
-    //   pub fn delete_param(&mut self, idx: usize) {
-    //       if let Some(h) = &mut self.params {
-    //           h.remove(idx);
-    //           if h.len() == 0 {
-    //               self.params = None;
-    //           }
-    //       }
-    //   }
-    //   pub fn active_deactive_param(&mut self, idx: usize) {
-    //       if let Some(h) = &mut self.params {
-    //           h[idx].2 = !h[idx].2;
-    //       }
-    //   }
 }

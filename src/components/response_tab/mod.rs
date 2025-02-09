@@ -1,5 +1,6 @@
 mod response_tab;
 mod view;
+//use crate::trace_dbg;
 
 use crate::{
     components::{default_block, tabs, text_area::TextArea},
@@ -30,21 +31,27 @@ impl ResponseTabComponent {
     }
     pub fn new() -> Self {
         ResponseTabComponent {
-            focus: Focus::None,
+            focus: Focus::Header(0),
             is_focused: false,
             resp_tabs: response_tab::RespTabs::new(),
             body_view: TextArea::new(),
         }
     }
+    pub fn reset_state(&mut self) {
+        self.focus = Focus::Header(0);
+        self.body_view = TextArea::new();
+    }
+
     pub fn update_inner_focus(&mut self) {
         self.focus = self.focus.next();
         self.resp_tabs.next();
     }
-    pub fn update(&self, req: &mut Request, event: &Event) {
+    pub fn update(&mut self, req: &mut Request, event: &Event) {
         match &self.focus {
-            Focus::None => (),
-            Focus::Header(_) => todo!(),
-            Focus::Body => todo!(),
+            Focus::Header(_) => (),
+            Focus::Body => {
+                self.body_view.update(event);
+            }
         }
     }
     pub fn set_body(&mut self, body: &String) {
@@ -56,7 +63,7 @@ impl ResponseTabComponent {
     pub fn gain_focus(&mut self) {
         self.is_focused = true;
     }
-    pub fn draw(&self, f: &mut Frame, req: &Request, rect: Rect) {
+    pub fn draw(&mut self, f: &mut Frame, req: &Request, rect: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -147,19 +154,14 @@ impl ResponseTabComponent {
                 }
             }
             ResponseOptions::Body(_, _) => {
-                if let Some(resp) = &req.response() {
-                    if let Some(body) = &resp.body {
-                        TextArea::from(&TextArea::from(body).format_json().0).draw(f, chunks[2])
-                    } else {
-                        f.render_widget(
-                            Paragraph::new("No Body")
-                                .block(default_block(Some("Response Body"), self.is_focused)),
-                            chunks[2],
-                        );
-                    }
+                let formatted_body = req.resp_body_formatted();
+                if !formatted_body.is_empty() {
+                    self.body_view.set_focus(self.is_focused);
+                    self.body_view.set_lines(formatted_body);
+                    self.body_view.draw(f, chunks[2])
                 } else {
                     f.render_widget(
-                        Paragraph::new("")
+                        Paragraph::new("No Body")
                             .block(default_block(Some("Response Body"), self.is_focused)),
                         chunks[2],
                     );
