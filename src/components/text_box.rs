@@ -88,26 +88,32 @@ impl TextBox {
             _ => {}
         }
     }
-    pub fn draw(&self, f: &mut Frame, rect: Rect, name: &str, is_focused: bool) {
+    pub fn get_content_styled(&self, to_fill: &mut Vec<Span>, is_focused: bool) {
+        to_fill.clear();
         let cont = self.get_content();
-        let mut spans: Vec<Span> = vec![Span::from(cont.clone())];
+        to_fill.push(Span::from(cont.clone()));
 
         if is_focused {
             if self.cursor_pos >= self.buffer.len() {
-                spans = vec![Span::from(cont), Span::from("_")];
+                to_fill.push(Span::from("_".to_string()));
             } else {
                 let (left, right) = cont.split_at(self.cursor_pos);
                 let (first, rest) = right.split_at(1);
                 let rest2 = {
                     (
-                        Span::from(first).style(Style::default().underlined()),
-                        Span::from(rest),
+                        Span::from(first.to_string()).style(Style::default().underlined()),
+                        Span::from(rest.to_string()),
                     )
                 };
-                spans = vec![Span::from(left), rest2.0, rest2.1];
+                to_fill.push(Span::from(left.to_string()));
+                to_fill.push(rest2.0);
+                to_fill.push(rest2.1);
             }
         }
-
+    }
+    pub fn draw(&self, f: &mut Frame, rect: Rect, name: &str, is_focused: bool) {
+        let mut spans = Vec::new();
+        self.get_content_styled(&mut spans, is_focused);
         f.render_widget(
             Paragraph::new(Text::from(Line::from(spans)))
                 .block(default_block(Some("Address"), is_focused))

@@ -1,11 +1,13 @@
 use crate::components::{default_block, PopUpComponent, KV};
 use crate::layout::centered_rect;
 use ratatui::layout::Margin;
+use ratatui::style::Modifier;
 use ratatui::widgets::{Scrollbar, ScrollbarOrientation, ScrollbarState};
 use ratatui::{
     layout::{Constraint, Layout, Rect},
+    prelude::*,
     style::{Color, Style},
-    widgets::{Block, Borders, Clear, List, ListState, Row, Table, TableState},
+    widgets::{Block, Borders, Cell, Clear, List, ListState, Row, Table, TableState},
     Frame,
 };
 use serde::{Deserialize, Serialize};
@@ -274,11 +276,10 @@ impl TempEnv {
 
         f.render_stateful_widget(
             List::new(self.all_envs.iter().map(|env| env.name.clone()))
-                .block(
-                    Block::default()
-                        .title("Environments")
-                        .borders(Borders::NONE),
-                )
+                .block(default_block(
+                    Some("Environments"),
+                    matches!(self.environment_sub_selection, EnvironmentSubSection::Name),
+                ))
                 .highlight_style(Style::default().fg(Color::Green))
                 .highlight_symbol(">>"),
             chunks[0],
@@ -296,10 +297,22 @@ impl TempEnv {
         let mut state = TableState::default();
         state.select(Some(self.selected_kv));
         let items = Table::new(
-            self.current_kvs.iter().map(|item| {
-                Row::new(vec![item.get_key().clone(), item.get_value().clone()])
-                    .style(Style::default().fg(Color::LightBlue))
-            }),
+            self.current_kvs
+                .iter()
+                .enumerate()
+                .map(|(idx, item)| {
+                    if idx == self.selected_kv {
+                        Row::new(vec![
+                            Cell::new(Line::from(item.get_key_spans())),
+                            Cell::new(Line::from(item.get_value_spans())),
+                        ])
+                        .style(Style::default().fg(Color::LightBlue))
+                    } else {
+                        Row::new(vec![Cell::new(item.get_key()), Cell::new(item.get_value())])
+                            .style(Style::default().fg(Color::LightBlue))
+                    }
+                })
+                .collect::<Vec<Row>>(),
             [Constraint::Percentage(50), Constraint::Percentage(50)],
         )
         .header(Row::new(vec!["Key", "Value"]))
@@ -307,7 +320,7 @@ impl TempEnv {
             Some(&title),
             matches!(self.environment_sub_selection, EnvironmentSubSection::KVs),
         ))
-        .highlight_style(Style::new().fg(Color::Green))
+        .highlight_style(Style::new().fg(Color::Green).add_modifier(Modifier::BOLD))
         .highlight_symbol(">>");
 
         let mut scrollbar_state =

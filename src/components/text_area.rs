@@ -26,7 +26,7 @@ pub struct TextArea {
 impl TextArea {
     pub fn new() -> Self {
         TextArea {
-            lines: Vec::new(),
+            lines: vec![String::from("")],
             cursor_pos: (0, 0),
             is_focused: true,
             mutable: true,
@@ -52,14 +52,20 @@ impl TextArea {
         self.error = error;
     }
     pub fn new_line(&mut self) {
-        if self.cursor_pos.1 == self.lines.len() - 1 {
-            self.lines.push(String::new());
-            self.cursor_pos.1 = self.lines.len() - 1;
-            self.cursor_pos.0 = 0;
+        if self.is_on_last_line() {
+            self.lines.push(String::from(""));
+            self.set_cursor_to_begin_of_last_line();
         } else {
             self.lines.insert(self.cursor_pos.1 + 1, String::new());
             self.cursor_pos = (0, self.cursor_pos.1 + 1);
         }
+    }
+    fn set_cursor_to_begin_of_last_line(&mut self) {
+        if self.is_on_last_line() {
+            return;
+        }
+        self.cursor_pos.1 = self.lines.len() - 1;
+        self.cursor_pos.0 = 0;
     }
     pub fn push(&mut self, c: char) {
         if c == '\n' {
@@ -137,6 +143,9 @@ impl TextArea {
         }
     }
     fn is_on_last_line(&self) -> bool {
+        if self.lines.is_empty() {
+            return true;
+        }
         self.cursor_pos.1 == self.lines.len() - 1
     }
     fn is_on_first_line(&self) -> bool {
@@ -210,23 +219,20 @@ impl TextArea {
         }
     }
 
-    //pub fn format_json(&self) -> (String, String) {
-    //    match self.kind {
-    //        Kind::Plain => (self.lines.clone().join("\n"), String::from("")),
-    //        Kind::Json => serde_json::from_str(&self.lines.clone().join("\n")).map_or_else(
-    //            |e| {
-    //                let mut error = String::from("");
-    //                error.push_str("Error: ");
-    //                error.push_str(e.to_string().as_str());
-    //                (self.lines.join("\n"), error)
-    //            },
-    //            |data: Value| {
-    //                let content = serde_json::to_string_pretty(&data).unwrap();
-    //                (content, String::from(""))
-    //            },
-    //        ),
-    //    }
-    //}
+    pub fn prettify_json(&mut self) {
+        self.lines = serde_json::to_string_pretty(
+            &serde_json::from_str::<serde_json::Value>(&self.lines.clone().join("\n")).unwrap(),
+        )
+        .unwrap()
+        .lines()
+        .map(|l| l.to_string())
+        .collect::<Vec<String>>();
+        self.go_to_last_line()
+    }
+    pub fn go_to_last_line(&mut self) {
+        self.cursor_pos.1 = self.lines.len() - 1;
+        self.cursor_pos.0 = self.lines[self.cursor_pos.1].len();
+    }
     //pub fn format_json_mut(&mut self) {
     //    let (formatted, error) = self.format_json();
     //    if !error.is_empty() {
@@ -259,7 +265,7 @@ impl TextArea {
         let mut cursor_pos_y: usize = self.cursor_pos.1;
         for line_idx in 0..display_lines.len() {
             let mut repeat: usize = 0;
-            let line = display_lines.pop().unwrap();
+            let line = display_lines.get(line_idx).unwrap();
             split_line_with_width(&line, actual_width, &mut modified_lines, &mut repeat);
             if line_idx < self.cursor_pos.1 {
                 cursor_pos_y += repeat;
@@ -278,6 +284,8 @@ impl TextArea {
         ))
         .block(default_block(Some("Body"), self.is_focused))
         .wrap(Wrap { trim: false });
+        trace_dbg!(level: tracing::Level::INFO, self.cursor_pos);
+        trace_dbg!(level: tracing::Level::INFO, self.lines.clone());
         f.render_widget(paragraph, chunks[1]);
 
         let mut state = ScrollbarState::default()

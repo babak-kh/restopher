@@ -66,11 +66,7 @@ impl ResponseTabComponent {
     pub fn draw(&mut self, f: &mut Frame, req: &Request, rect: Rect) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Percentage(10),
-                Constraint::Percentage(12),
-                Constraint::Percentage(78),
-            ])
+            .constraints([Constraint::Max(3), Constraint::Max(3), Constraint::Fill(1)])
             .split(rect);
         f.render_widget(
             tabs(

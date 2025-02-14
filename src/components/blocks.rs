@@ -5,13 +5,16 @@ use ratatui::text::Span;
 use ratatui::widgets::{Block, Borders, Tabs};
 
 pub fn default_block(name: Option<&str>, is_focused: bool) -> Block {
-    let b = Block::default().borders(Borders::ALL).border_style({
-        if is_focused {
-            Style::default().fg(Color::Red)
-        } else {
-            Style::default().fg(Color::White)
-        }
-    });
+    let b = Block::default()
+        .borders(Borders::ALL)
+        .border_style({
+            if is_focused {
+                Style::default().fg(Color::Red)
+            } else {
+                Style::default().fg(Color::White)
+            }
+        })
+        .border_type(ratatui::widgets::BorderType::Rounded);
     if let Some(name) = name {
         b.title(Span::styled(name, Style::default().fg(Color::White)))
     } else {

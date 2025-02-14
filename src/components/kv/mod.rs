@@ -1,10 +1,10 @@
-
 use crate::components::default_block;
 
 use super::text_box::TextBox;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style},
+    text::Span,
     widgets::Paragraph,
     Frame,
 };
@@ -70,6 +70,20 @@ impl KV {
     pub fn get_key(&self) -> String {
         self.key.text.to_string()
     }
+    pub fn get_key_spans(&self) -> Vec<Span> {
+        let mut spans: Vec<Span> = Vec::new();
+        self.key
+            .text
+            .get_content_styled(&mut spans, self.key.active);
+        spans
+    }
+    pub fn get_value_spans(&self) -> Vec<Span> {
+        let mut spans: Vec<Span> = Vec::new();
+        self.value
+            .text
+            .get_content_styled(&mut spans, self.value.active);
+        spans
+    }
     pub fn get_value(&self) -> String {
         self.value.text.to_string()
     }
@@ -83,17 +97,7 @@ impl KV {
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
             .split(rect);
-        f.render_widget(
-            Paragraph::new(self.key.text.to_string())
-                .style(Style::default().fg(Color::White))
-                .block(default_block(Some("Key"), self.key.active)),
-            chunks[0],
-        );
-        f.render_widget(
-            Paragraph::new(self.value.text.to_string())
-                .style(Style::default().fg(Color::White))
-                .block(default_block(Some("Value"), self.value.active)),
-            chunks[1],
-        );
+        self.key.text.draw(f, chunks[0], "Key", self.key.active);
+        self.value.text.draw(f, chunks[0], "Key", self.key.active);
     }
 }

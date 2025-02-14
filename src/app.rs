@@ -454,6 +454,7 @@ impl<'a> App<'a> {
             .get(0)
             .unwrap_or(&format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH))
             .to_string();
+        trace_dbg!(level: tracing::Level::INFO, (&path, name.clone()));
         match fs::metadata(path.clone()) {
             Ok(f) => {
                 if f.is_dir() {

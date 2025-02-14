@@ -1,5 +1,6 @@
 mod request_tab;
 mod view;
+use anyhow::{Context, Result};
 
 use crate::{
     keys::keys::is_ctrl_b,
@@ -130,7 +131,6 @@ impl<'a> RequestTabComponent<'a> {
         }
     }
     fn handle_body_update(&mut self, _: &mut Request, event: Event) {
-        if is_ctrl_b(&event) {};
         if let Some(modifier) = &event.modifier {
             match modifier {
                 Modifier::Control => match event.key {
@@ -142,25 +142,12 @@ impl<'a> RequestTabComponent<'a> {
                         match self.request_body_options {
                             RequestBodyOptions::Json => {
                                 trace_dbg!(level:tracing::Level::INFO, &self.temp_body);
-                                let (prettied, err) = from_str(&self.temp_body.clone())
-                                    .map_or_else(
-                                        |e| {
-                                            let mut error = String::from("");
-                                            error.push_str("Error: ");
-                                            error.push_str(e.to_string().as_str());
-                                            (self.temp_body.clone(), error)
-                                        },
-                                        |data: serde_json::Value| {
-                                            let content =
-                                                serde_json::to_string_pretty(&data).unwrap();
-                                            (content, String::from(""))
-                                        },
-                                    );
-                                if !err.is_empty() {
-                                    self.body_view.set_error(err);
+                                if let Err(e) = from_str::<serde_json::Value>(&self.temp_body) {
+                                    self.body_view.set_error(e.to_string());
                                     return;
-                                };
-                                self.body_view.set_lines(prettied.lines().collect());
+                                }
+                                self.body_view.prettify_json();
+                                self.temp_body = self.body_view.get_content();
                             }
                             RequestBodyOptions::Text => (),
                         };
@@ -206,12 +193,36 @@ impl<'a> RequestTabComponent<'a> {
     pub fn gain_focus(&mut self) {
         self.focused = true;
     }
-    pub fn draw(&mut self, f: &mut Frame, request: &Request, rect: Rect) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(10), Constraint::Percentage(90)])
-            .split(rect);
-
+    pub fn draw_header(&mut self, f: &mut Frame, request: &Request, rect: Rect) {
+        match self.focus {
+            Focus::NewHeaderKV => {
+                let chunks_vertical = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Percentage(80), Constraint::Percentage(20)])
+                    .split(rect);
+                render_items(
+                    f,
+                    "Headers",
+                    &request.headers(),
+                    Some(0),
+                    self.focused,
+                    chunks_vertical[0],
+                );
+                self.new_header.draw(f, chunks_vertical[1]);
+            }
+            _ => {
+                render_items(
+                    f,
+                    "Headers",
+                    &request.headers(),
+                    Some(0),
+                    self.focused,
+                    rect,
+                );
+            }
+        };
+    }
+    pub fn draw_tabs(&mut self, f: &mut Frame, _: &Request, rect: Rect) {
         f.render_widget(
             tabs(
                 self.req_tabs
@@ -223,81 +234,66 @@ impl<'a> RequestTabComponent<'a> {
                 self.req_tabs.active_idx(),
                 self.focused,
             ),
-            chunks[0],
+            rect,
         );
+    }
+    pub fn draw_params(&mut self, f: &mut Frame, request: &Request, rect: Rect) {
+        match self.focus {
+            Focus::NewParamKV => {
+                let chunks_vertical = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Percentage(80), Constraint::Percentage(20)])
+                    .split(rect);
+                render_items(
+                    f,
+                    "Params",
+                    &request.params(),
+                    Some(0),
+                    self.focused,
+                    chunks_vertical[0],
+                );
+                self.new_param.draw(f, chunks_vertical[1]);
+            }
+            _ => {
+                render_items(f, "Params", &request.params(), Some(0), self.focused, rect);
+            }
+        };
+    }
+    fn draw_body(&mut self, f: &mut Frame, _: &Request, rect: Rect) {
+        self.body_view.set_focus(self.is_focused());
+        let body_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(12), Constraint::Percentage(88)])
+            .split(rect);
+        f.render_widget(
+            Paragraph::new(format!("Body: {}", self.request_body_options.to_string()))
+                .block(default_block(Some("Body"), self.focused)),
+            body_chunks[0],
+        );
+        if let Err(e) = from_str::<serde_json::Value>(&self.temp_body) {
+            self.body_view.set_error(e.to_string());
+        } else {
+            self.body_view.set_error(String::from(""));
+        }
+        self.body_view.draw(f, body_chunks[1]);
+    }
+
+    pub fn draw(&mut self, f: &mut Frame, request: &Request, rect: Rect) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .margin(0)
+            .constraints([Constraint::Percentage(10), Constraint::Percentage(90)])
+            .split(rect);
+        self.draw_tabs(f, request, chunks[0]);
         match self.req_tabs.active() {
             RequestTabOptions::Headers(_, _) => {
-                match self.focus {
-                    Focus::NewHeaderKV => {
-                        let chunks_vertical = Layout::default()
-                            .direction(Direction::Vertical)
-                            .constraints([Constraint::Percentage(80), Constraint::Percentage(20)])
-                            .split(chunks[1]);
-                        render_items(
-                            f,
-                            "Headers",
-                            &request.headers(),
-                            Some(0),
-                            self.focused,
-                            chunks_vertical[0],
-                        );
-                        self.new_header.draw(f, chunks_vertical[1]);
-                    }
-                    _ => {
-                        render_items(
-                            f,
-                            "Headers",
-                            &request.headers(),
-                            Some(0),
-                            self.focused,
-                            chunks[1],
-                        );
-                    }
-                };
+                self.draw_header(f, request, chunks[1]);
             }
             RequestTabOptions::Body(_, _) => {
-                self.body_view.set_focus(self.is_focused());
-
-                let body_chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .constraints([Constraint::Percentage(12), Constraint::Percentage(88)])
-                    .split(chunks[1]);
-                f.render_widget(
-                    Paragraph::new(format!("Body: {}", self.request_body_options.to_string()))
-                        .block(default_block(Some("Body"), self.focused)),
-                    body_chunks[0],
-                );
-                //self.body_view.set_lines(self.temp_body.lines().collect());
-                self.body_view.draw(f, body_chunks[1]);
+                self.draw_body(f, request, chunks[1]);
             }
             RequestTabOptions::Params(_, _) => {
-                match self.focus {
-                    Focus::NewParamKV => {
-                        let chunks_vertical = Layout::default()
-                            .direction(Direction::Vertical)
-                            .constraints([Constraint::Percentage(80), Constraint::Percentage(20)])
-                            .split(chunks[1]);
-                        render_items(
-                            f,
-                            "Params",
-                            &request.params(),
-                            Some(0),
-                            self.focused,
-                            chunks_vertical[0],
-                        );
-                        self.new_param.draw(f, chunks_vertical[1]);
-                    }
-                    _ => {
-                        render_items(
-                            f,
-                            "Params",
-                            &request.params(),
-                            Some(0),
-                            self.focused,
-                            chunks[1],
-                        );
-                    }
-                };
+                self.draw_params(f, request, chunks[1]);
             }
         }
     }
