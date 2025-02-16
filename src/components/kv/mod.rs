@@ -1,11 +1,7 @@
-use crate::components::default_block;
-
 use super::text_box::TextBox;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
     text::Span,
-    widgets::Paragraph,
     Frame,
 };
 use serde::{Deserialize, Serialize};
@@ -63,9 +59,6 @@ impl KV {
             return;
         }
         self.value.text.pop();
-    }
-    pub fn is_key_active(&self) -> bool {
-        self.key.active
     }
     pub fn get_key(&self) -> String {
         self.key.text.to_string()

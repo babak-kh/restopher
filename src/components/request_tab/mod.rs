@@ -1,9 +1,7 @@
 mod request_tab;
 mod view;
-use anyhow::{Context, Result};
 
 use crate::{
-    keys::keys::is_ctrl_b,
     request::{Body, BodyKind},
     trace_dbg,
 };
@@ -14,7 +12,7 @@ use ratatui::{
     Frame,
 };
 pub use request_tab::{ReqTabs, RequestTabOptions};
-use serde_json::{from_str, to_string_pretty};
+use serde_json::from_str;
 
 use crate::{
     components::{default_block, tabs, text_area::TextArea, KV},
@@ -38,7 +36,7 @@ pub struct RequestTabComponent<'a> {
 impl<'a> RequestTabComponent<'a> {
     pub fn new() -> Self {
         RequestTabComponent {
-            focus: Focus::Header(0),
+            focus: Focus::Header,
             focused: true,
             req_tabs: ReqTabs::new(),
             new_param: KV::new(),
@@ -56,10 +54,9 @@ impl<'a> RequestTabComponent<'a> {
         match &self.focus {
             Focus::NewHeaderKV => self.handle_new_header_update(req, event),
             Focus::NewParamKV => self.handle_new_param_update(req, event),
-            Focus::Header(_) => self.handle_header_update(req, event),
-            Focus::Param(_) => self.handle_param_update(req, event),
+            Focus::Header => self.handle_header_update(req, event),
+            Focus::Param => self.handle_param_update(req, event),
             Focus::Body => self.handle_body_update(req, event),
-            Focus::None => (),
         }
     }
     fn handle_new_header_update(&mut self, req: &mut Request, event: Event) {
@@ -67,7 +64,7 @@ impl<'a> RequestTabComponent<'a> {
             Key::Enter => {
                 req.add_to_header(self.new_header.get_key(), self.new_header.get_value(), true);
                 self.new_header.clear();
-                self.focus = Focus::Header(0);
+                self.focus = Focus::Header;
             }
             Key::Tab => {
                 self.new_header.change_active();
@@ -78,7 +75,7 @@ impl<'a> RequestTabComponent<'a> {
             Key::Backspace => {
                 self.new_header.remove_from_active();
             }
-            Key::Esc => self.focus = Focus::Header(0),
+            Key::Esc => self.focus = Focus::Header,
             _ => (),
         }
     }
@@ -87,7 +84,7 @@ impl<'a> RequestTabComponent<'a> {
             Key::Enter => {
                 req.add_to_param(self.new_param.get_key(), self.new_param.get_value(), true);
                 self.new_param.clear();
-                self.focus = Focus::Param(0);
+                self.focus = Focus::Param;
             }
             Key::Tab => {
                 self.new_param.change_active();
@@ -98,11 +95,11 @@ impl<'a> RequestTabComponent<'a> {
             Key::Backspace => {
                 self.new_param.remove_from_active();
             }
-            Key::Esc => self.focus = Focus::Param(0),
+            Key::Esc => self.focus = Focus::Param,
             _ => (),
         };
     }
-    fn handle_header_update(&mut self, req: &mut Request, event: Event) {
+    fn handle_header_update(&mut self, _: &mut Request, event: Event) {
         if let Some(modifier) = event.modifier {
             match modifier {
                 Modifier::Control => match event.key {
@@ -116,7 +113,7 @@ impl<'a> RequestTabComponent<'a> {
             }
         }
     }
-    fn handle_param_update(&mut self, req: &mut Request, event: Event) {
+    fn handle_param_update(&mut self, _: &mut Request, event: Event) {
         if let Some(modifier) = event.modifier {
             match modifier {
                 Modifier::Control => match event.key {
@@ -286,13 +283,13 @@ impl<'a> RequestTabComponent<'a> {
             .split(rect);
         self.draw_tabs(f, request, chunks[0]);
         match self.req_tabs.active() {
-            RequestTabOptions::Headers(_, _) => {
+            RequestTabOptions::Headers(_) => {
                 self.draw_header(f, request, chunks[1]);
             }
-            RequestTabOptions::Body(_, _) => {
+            RequestTabOptions::Body(_) => {
                 self.draw_body(f, request, chunks[1]);
             }
-            RequestTabOptions::Params(_, _) => {
+            RequestTabOptions::Params(_) => {
                 self.draw_params(f, request, chunks[1]);
             }
         }
@@ -303,7 +300,7 @@ fn render_items(
     f: &mut Frame,
     block_title: &str,
     items: &Option<Vec<(String, String, bool)>>,
-    selected: Option<usize>,
+    _: Option<usize>,
     focused: bool,
     rect: Rect,
 ) {

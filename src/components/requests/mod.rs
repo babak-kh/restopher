@@ -7,36 +7,36 @@ use ratatui::widgets::Clear;
 use ratatui::{
     layout::{Constraint, Layout, Rect},
     text::Span,
-    widgets::{Paragraph},
+    widgets::Paragraph,
     Frame,
 };
 
 use super::PopUpComponent;
 
-enum focus {
+enum Focus {
     Env,
     Requests,
 }
-impl focus {
+impl Focus {
     fn next(&mut self) {
         match self {
-            focus::Env => *self = focus::Requests,
-            focus::Requests => *self = focus::Env,
+            Focus::Env => *self = Focus::Requests,
+            Focus::Requests => *self = Focus::Env,
         }
     }
 }
 
 pub struct RequestsComponent {
     is_focused: bool,
-    focus: focus,
+    focus: Focus,
     popup: Option<PopUpComponent>,
 }
 
 impl RequestsComponent {
-    pub fn new(names: Vec<String>, idx: usize) -> Self {
+    pub fn new() -> Self {
         Self {
             is_focused: false,
-            focus: focus::Requests,
+            focus: Focus::Requests,
             popup: None,
         }
     }
@@ -69,7 +69,7 @@ impl RequestsComponent {
             _ => (),
         }
         match self.focus {
-            focus::Env => match event.key {
+            Focus::Env => match event.key {
                 Key::Down => {
                     if *environment_index < environments.len() {
                         *environment_index += 1;
@@ -87,7 +87,7 @@ impl RequestsComponent {
                 }
                 _ => (),
             },
-            focus::Requests => {
+            Focus::Requests => {
                 if let Some(modifier) = &event.modifier {
                     match modifier {
                         Modifier::Control => match event.key {
@@ -111,8 +111,6 @@ impl RequestsComponent {
                                 self.popup = Some(PopUpComponent::new(
                                     "Rename".to_string(),
                                     "Rename Request".to_string(),
-                                    None,
-                                    None,
                                 ));
                             }
                             _ => (),
@@ -141,17 +139,11 @@ impl RequestsComponent {
             }
         }
     }
-    pub fn focus(&mut self) {
-        self.is_focused = true;
-    }
     pub fn lose_focus(&mut self) {
         self.is_focused = false;
     }
     pub fn gain_focus(&mut self) {
         self.is_focused = true;
-    }
-    pub fn blur(&mut self) {
-        self.is_focused = false;
     }
     pub fn draw(
         &self,
@@ -169,19 +161,19 @@ impl RequestsComponent {
                 names.iter().map(|t| Span::from(t.to_string())).collect(),
                 Some("Requests"),
                 selected,
-                self.is_focused && matches!(self.focus, focus::Requests),
+                self.is_focused && matches!(self.focus, Focus::Requests),
             ),
             chunks[0],
         );
         f.render_widget(
             Paragraph::new(env_name).block(default_block(
                 Some("Environment"),
-                self.is_focused && matches!(self.focus, focus::Env),
+                self.is_focused && matches!(self.focus, Focus::Env),
             )),
             chunks[1],
         );
         if let Some(popup) = &self.popup {
-            let r = centered_rect(60, 20, f.size());
+            let r = centered_rect(60, 20, f.area());
             f.render_widget(Clear, r);
             popup.draw(f, r);
         }

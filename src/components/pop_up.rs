@@ -11,36 +11,19 @@ use ratatui::{
 #[derive(Debug)]
 pub struct PopUpComponent {
     title: String,
-    content: String,
     input: TextBox,
-    cancel: Option<String>,
-    action: Option<String>,
 }
 
 impl PopUpComponent {
-    pub fn new(
-        title: String,
-        content: String,
-        cancel: Option<String>,
-        action: Option<String>,
-    ) -> Self {
+    pub fn new(title: String, _: String) -> Self {
         Self {
             title,
-            content,
-            cancel,
-            action,
             input: TextBox::new(),
         }
     }
-    pub fn show(&self) {
-        // show the pop up
-    }
-    pub fn hide(&self) {
-        // hide the pop up
-    }
     pub fn update(&mut self, event: &Event) -> (Option<String>, bool) {
         match event.key {
-            Key::Char(x) => {
+            Key::Char(_) => {
                 self.input.update(event);
                 return (None, true);
             }

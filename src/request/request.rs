@@ -50,19 +50,6 @@ pub struct Response {
     pub status_code: i32,
 }
 
-impl Response {
-    pub fn headers(&self) -> Option<HashMap<String, String>> {
-        self.headers.clone()
-    }
-    pub fn new() -> Self {
-        Response {
-            headers: None,
-            body: None,
-            status_code: 0,
-        }
-    }
-}
-
 pub fn handle_response_headers(
     r: &HeaderMap,
 ) -> Result<HashMap<String, String>, crate::app::Error> {
@@ -81,6 +68,8 @@ pub fn handle_response_headers(
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Request {
+    #[serde(skip)]
+    from_collection_path: Option<String>,
     name: String,
     headers: Option<Vec<(String, String, bool)>>,
     params: Option<Vec<(String, String, bool)>>,
@@ -93,6 +82,7 @@ pub struct Request {
 impl Request {
     pub fn new() -> Self {
         Request {
+            from_collection_path: None,
             name: String::new(),
             headers: None,
             params: None,
@@ -105,6 +95,13 @@ impl Request {
             response: None,
         }
     }
+    pub fn set_collection_path<'a>(&'a mut self, path: String) {
+        self.from_collection_path = Some(path);
+    }
+    pub fn collection_path(&self) -> Option<String> {
+        self.from_collection_path.clone()
+    }
+
     pub fn name(&self) -> String {
         if !self.name.is_empty() {
             return self.name.clone();
@@ -138,14 +135,8 @@ impl Request {
                 .push((key, value, active));
         }
     }
-    pub fn add_to_address(&mut self, c: char, idx: usize) {
-        self.address.insert(idx, c);
-    }
     pub fn set_address(&mut self, a: String) {
         self.address = a;
-    }
-    pub fn remove_from_address(&mut self, idx: usize) {
-        self.address.remove(idx);
     }
     pub fn verb_up(&mut self) {
         self.verb = self.verb.up();
@@ -155,15 +146,6 @@ impl Request {
     }
     pub fn verb(&self) -> HttpVerb {
         self.verb.clone()
-    }
-    pub fn add_to_body(&mut self, c: char) {
-        self.body.add(c);
-    }
-    pub fn remove_from_body(&mut self) {
-        self.body.pop();
-    }
-    pub fn body(&self) -> Body {
-        self.body.clone()
     }
     pub fn resp_body_formatted(&self) -> String {
         if let Some(resp) = &self.response {
@@ -202,20 +184,8 @@ impl Request {
         };
         String::from("")
     }
-    pub fn status_code(&self) -> i32 {
-        if let Some(sc) = &self.response {
-            return sc.status_code;
-        }
-        0
-    }
     pub fn headers(&self) -> Option<Vec<(String, String, bool)>> {
         self.headers.clone()
-    }
-    pub fn headers_len(&self) -> usize {
-        if let Some(headers) = &self.headers {
-            return headers.len();
-        }
-        0
     }
     pub fn handle_params(&self) -> HashMap<String, String> {
         let h = self
@@ -244,12 +214,6 @@ impl Request {
     }
     pub fn params(&self) -> Option<Vec<(String, String, bool)>> {
         self.params.clone()
-    }
-    pub fn params_len(&self) -> usize {
-        if let Some(params) = &self.params {
-            return params.len();
-        }
-        0
     }
     pub fn set_response_headers(&mut self, h: &HeaderMap) -> Result<(), crate::app::Error> {
         let headers = handle_response_headers(h)?;
@@ -285,20 +249,6 @@ impl Request {
                 status_code: sc,
             })
         }
-    }
-    pub fn set_response(
-        &mut self,
-        body: String,
-        headers: &HeaderMap,
-        sc: i32,
-    ) -> Result<(), crate::app::Error> {
-        let headers = handle_response_headers(headers)?;
-        self.response = Some(Response {
-            headers: Some(headers),
-            body: Some(body),
-            status_code: sc,
-        });
-        Ok(())
     }
     pub fn handle_headers(&self) -> HashMap<String, String> {
         self.headers

@@ -6,7 +6,6 @@ use ratatui::{
     widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap},
     Frame,
 };
-use serde_json::Value;
 
 use crate::{
     components::default_block,
@@ -30,15 +29,6 @@ impl TextArea {
             cursor_pos: (0, 0),
             is_focused: true,
             mutable: true,
-            error: String::from(""),
-        }
-    }
-    pub fn from(s: &String) -> Self {
-        TextArea {
-            lines: s.lines().map(|l| l.to_string()).collect::<Vec<String>>(),
-            cursor_pos: (0, 0),
-            is_focused: true,
-            mutable: false,
             error: String::from(""),
         }
     }
@@ -154,9 +144,6 @@ impl TextArea {
     fn is_on_last_char(&self) -> bool {
         self.cursor_pos.0 == self.lines[self.cursor_pos.1].len()
     }
-    pub fn cursor_position(&self) -> (usize, usize) {
-        self.cursor_pos
-    }
     pub fn get_content(&self) -> String {
         self.lines.join("\n")
     }
@@ -233,17 +220,6 @@ impl TextArea {
         self.cursor_pos.1 = self.lines.len() - 1;
         self.cursor_pos.0 = self.lines[self.cursor_pos.1].len();
     }
-    //pub fn format_json_mut(&mut self) {
-    //    let (formatted, error) = self.format_json();
-    //    if !error.is_empty() {
-    //        return;
-    //    }
-    //    self.lines = formatted
-    //        .lines()
-    //        .map(|l| l.to_string())
-    //        .collect::<Vec<String>>();
-    //    self.cursor_pos = (0, 0);
-    //}
     pub fn draw(&mut self, f: &mut Frame, rect: Rect) {
         let mut chunks: Vec<Rect> = vec![Rect::default(), rect];
         if !self.error.is_empty() {
@@ -258,18 +234,14 @@ impl TextArea {
             f.render_widget(paragraph, chunks[0]);
         }
 
-        let mut display_lines = self.lines.clone();
+        let display_lines = self.lines.clone();
         let mut modified_lines = Vec::new();
         let actual_height = chunks[1].height as usize - 2;
         let actual_width = chunks[1].width as usize - 2;
-        let mut cursor_pos_y: usize = self.cursor_pos.1;
         for line_idx in 0..display_lines.len() {
             let mut repeat: usize = 0;
             let line = display_lines.get(line_idx).unwrap();
             split_line_with_width(&line, actual_width, &mut modified_lines, &mut repeat);
-            if line_idx < self.cursor_pos.1 {
-                cursor_pos_y += repeat;
-            }
         }
         self.lines = modified_lines.clone();
         let mut diff = 0;

@@ -9,7 +9,7 @@ use crate::layout;
 
 pub fn error_popup(f: &mut Frame, e: &crate::app::Error, r: Rect) {
     let block = Block::default()
-        .title("Error")
+        .title(e.to_string())
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Red));
     let area = layout::centered_rect(60, 20, r);

@@ -28,7 +28,6 @@ pub fn tabs<'a>(
     selected: usize,
     is_focused: bool,
 ) -> Tabs<'a> {
-    let tt: Vec<Span<'a>> = Vec::new();
     Tabs::new(
         titles
             .into_iter()

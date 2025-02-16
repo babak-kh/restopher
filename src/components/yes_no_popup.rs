@@ -1,10 +1,6 @@
 use ratatui::{
-    layout::{Alignment, Constraint, Layout, Margin, Rect},
-    style::{Color, Style},
-    text::{Line, Span},
-    widgets::{
-        Block, Borders, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap,
-    },
+    layout::{Alignment, Constraint, Layout},
+    widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
 
@@ -22,15 +18,13 @@ enum State {
 pub struct YesNoPopupComponent<'a> {
     state: State,
     msg: &'a str,
-    pub action: &'a str,
 }
 
 impl<'a> YesNoPopupComponent<'a> {
-    pub fn new(msg: &'a str, action: &'a str) -> Self {
+    pub fn new(msg: &'a str) -> Self {
         Self {
             state: State::Yes,
             msg,
-            action,
         }
     }
     pub fn update(&mut self, event: &Event) -> Option<bool> {

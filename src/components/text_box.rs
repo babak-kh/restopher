@@ -62,14 +62,8 @@ impl TextBox {
         }
         self.cursor_pos += 1;
     }
-    pub fn cursor_position(&self) -> usize {
-        self.cursor_pos
-    }
     pub fn get_content(&self) -> String {
         self.buffer.clone()
-    }
-    pub fn get_index(&self) -> usize {
-        self.cursor_pos
     }
     pub fn update(&mut self, event: &Event) {
         match event.key {
@@ -111,7 +105,7 @@ impl TextBox {
             }
         }
     }
-    pub fn draw(&self, f: &mut Frame, rect: Rect, name: &str, is_focused: bool) {
+    pub fn draw(&self, f: &mut Frame, rect: Rect, _: &str, is_focused: bool) {
         let mut spans = Vec::new();
         self.get_content_styled(&mut spans, is_focused);
         f.render_widget(

@@ -1,6 +1,7 @@
 mod app;
 mod collection;
 mod components;
+mod env_replacer;
 mod environments;
 mod keys;
 mod layout;
@@ -19,6 +20,12 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
+
+pub(crate) const START_ENV_TOKEN: &str = "{{";
+pub(crate) const END_ENV_TOKEN: &str = "}}";
+pub(crate) const ENV_PATH: &str = "environments";
+pub(crate) const COLLECTION_PATH: &str = "collections";
+pub(crate) const DATA_DIRECTORY: &str = "/home/babak/.config/restopher";
 
 #[tokio::main]
 async fn main() -> Result<(), io::Error> {

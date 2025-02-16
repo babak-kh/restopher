@@ -12,7 +12,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Style},
     text::Span,
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, Wrap},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table},
     Frame,
 };
 use response_tab::ResponseOptions;
@@ -22,7 +22,7 @@ pub struct ResponseTabComponent {
     focus: Focus,
     is_focused: bool,
     body_view: TextArea,
-    resp_tabs: response_tab::RespTabs<'static>,
+    resp_tabs: response_tab::RespTabs,
 }
 
 impl ResponseTabComponent {
@@ -31,31 +31,23 @@ impl ResponseTabComponent {
     }
     pub fn new() -> Self {
         ResponseTabComponent {
-            focus: Focus::Header(0),
+            focus: Focus::Header,
             is_focused: false,
             resp_tabs: response_tab::RespTabs::new(),
             body_view: TextArea::new(),
         }
     }
-    pub fn reset_state(&mut self) {
-        self.focus = Focus::Header(0);
-        self.body_view = TextArea::new();
-    }
-
     pub fn update_inner_focus(&mut self) {
         self.focus = self.focus.next();
         self.resp_tabs.next();
     }
-    pub fn update(&mut self, req: &mut Request, event: &Event) {
+    pub fn update(&mut self, _: &mut Request, event: &Event) {
         match &self.focus {
-            Focus::Header(_) => (),
+            Focus::Header => (),
             Focus::Body => {
                 self.body_view.update(event);
             }
         }
-    }
-    pub fn set_body(&mut self, body: &String) {
-        self.body_view = TextArea::from(&body.clone());
     }
     pub fn lose_focus(&mut self) {
         self.is_focused = false;
@@ -119,7 +111,7 @@ impl ResponseTabComponent {
             status_code[1],
         );
         match self.resp_tabs.active() {
-            ResponseOptions::Headers(_, _) => {
+            ResponseOptions::Headers => {
                 if let Some(resp) = &req.response() {
                     if let Some(headers) = &resp.headers {
                         f.render_widget(
@@ -149,7 +141,7 @@ impl ResponseTabComponent {
                     );
                 }
             }
-            ResponseOptions::Body(_, _) => {
+            ResponseOptions::Body => {
                 let formatted_body = req.resp_body_formatted();
                 if !formatted_body.is_empty() {
                     self.body_view.set_focus(self.is_focused);

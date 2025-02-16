@@ -1,32 +1,24 @@
-#[derive(Debug)]
-pub enum ResponseOptions<'a> {
-    Body(usize, &'a str),
-    Headers(usize, &'a str),
+#[derive(Debug, Clone)]
+pub enum ResponseOptions {
+    Body,
+    Headers,
 }
-impl<'a> ResponseOptions<'a> {
-    pub fn split_at(&self) -> (&str, &str) {
-        match self {
-            ResponseOptions::Headers(_, name) | ResponseOptions::Body(_, name) => name.split_at(1),
-        }
-    }
+impl ResponseOptions {
     pub fn to_string(&self) -> String {
         match self {
-            ResponseOptions::Headers(_, _) => "Headers".to_string(),
-            ResponseOptions::Body(_, _) => "Body".to_string(),
+            ResponseOptions::Headers => "Headers".to_string(),
+            ResponseOptions::Body => "Body".to_string(),
         }
     }
 }
 #[derive(Debug)]
-pub struct RespTabs<'a> {
-    pub resp_tabs: Vec<&'a ResponseOptions<'a>>,
+pub struct RespTabs {
+    pub resp_tabs: Vec<ResponseOptions>,
     state: usize,
 }
-impl<'a> RespTabs<'a> {
+impl RespTabs {
     pub fn new() -> Self {
-        let resp_tabs = vec![
-            &ResponseOptions::Headers(0, "Headers"),
-            &ResponseOptions::Body(1, "Body"),
-        ];
+        let resp_tabs = vec![ResponseOptions::Headers, ResponseOptions::Body];
         RespTabs {
             resp_tabs,
             state: 0,
@@ -39,8 +31,8 @@ impl<'a> RespTabs<'a> {
         }
         self.state += 1;
     }
-    pub fn active(&self) -> &ResponseOptions {
-        self.resp_tabs[self.state]
+    pub fn active(&self) -> ResponseOptions {
+        self.resp_tabs[self.state].clone()
     }
     pub fn active_idx(&self) -> usize {
         self.state

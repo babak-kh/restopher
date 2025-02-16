@@ -7,11 +7,14 @@ use ratatui::{
     layout::{Constraint, Layout, Rect},
     prelude::*,
     style::{Color, Style},
-    widgets::{Block, Borders, Cell, Clear, List, ListState, Row, Table, TableState},
+    widgets::{Cell, Clear, List, ListState, Row, Table, TableState},
     Frame,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fs::{self, File};
+use std::io::{BufReader, Read};
+use std::str::from_utf8;
 
 use crate::keys::keys::{Event, Key, Modifier::*};
 
@@ -27,19 +30,6 @@ impl Environment {
             envs: HashMap::new(),
         }
     }
-    pub fn default() -> Self {
-        Environment {
-            name: "".to_string(),
-            envs: HashMap::new(),
-        }
-    }
-    fn into_kvs(&self) -> Vec<KV> {
-        let mut result = Vec::new();
-        for (k, v) in self.envs.iter() {
-            result.push(KV::from(k.clone(), v.clone()))
-        }
-        result
-    }
 }
 
 #[derive(Debug)]
@@ -53,7 +43,6 @@ pub struct TempEnv {
     changed: bool,
     selected: usize,
     selected_kv: usize,
-    initial_idx: usize,
     current_kvs: Vec<KV>,
     environment_sub_selection: EnvironmentSubSection,
     popup: Option<PopUpComponent>,
@@ -65,7 +54,6 @@ impl Into<TempEnv> for Environment {
             all_envs: Vec::new(),
             current_kvs: into(self.envs),
             changed: false,
-            initial_idx: 0,
             selected: 0,
             selected_kv: 0,
             environment_sub_selection: EnvironmentSubSection::Name,
@@ -79,18 +67,12 @@ impl TempEnv {
         TempEnv {
             changed: false,
             selected: initial_idx,
-            initial_idx,
             selected_kv: 0,
             current_kvs: into(all_envs[initial_idx].envs.clone()),
             all_envs,
             environment_sub_selection: EnvironmentSubSection::Name,
             popup: None,
         }
-    }
-    pub fn add_env(&mut self, name: String) {
-        self.all_envs.push(Environment::new("".to_string()));
-        self.selected = self.all_envs.len() - 1;
-        self.current_kvs = Vec::new();
     }
     pub fn sync_envs(&mut self) {
         self.all_envs[self.selected].envs = self
@@ -133,8 +115,6 @@ impl TempEnv {
                             self.popup = Some(PopUpComponent::new(
                                 "New Environment".to_string(),
                                 "Enter the name of the new environment".to_string(),
-                                Some("Cancel".to_string()),
-                                Some("Create".to_string()),
                             ));
                             return (None, true);
                         }
@@ -352,4 +332,27 @@ fn into(data: HashMap<String, String>) -> Vec<KV> {
         result.push(KV::from(key, value));
     }
     result
+}
+
+pub fn load_env_from_dir(path: String) -> Result<Vec<Environment>, std::io::Error> {
+    let mut result = Vec::<Environment>::new();
+    for entry in fs::read_dir(path)? {
+        let entry = entry?;
+        match entry.path().extension() {
+            Some(ext) => {
+                if ext == "env" {
+                    result.push(serde_json::from_reader(fs::File::open(entry.path())?)?);
+                };
+            }
+            None => (),
+        };
+    }
+    Ok(result)
+}
+
+pub fn load_env_from_file(f: File) -> Result<Vec<Environment>, std::io::Error> {
+    let mut reader = BufReader::new(f);
+    let mut buffer = Vec::new();
+    reader.read_to_end(&mut buffer)?;
+    Ok(serde_json::from_str(from_utf8(&buffer).unwrap())?)
 }

@@ -23,31 +23,18 @@ pub struct Event {
     pub modifier: Option<Modifier>,
     pub key: Key,
 }
-
 pub const OPEN_COLLECTIONS: &Event = &Event {
     modifier: Some(Modifier::Control),
     key: Key::Char('c'),
 };
-
 pub const CLOSE_COLLECTIONS: &Event = &Event {
     modifier: None,
     key: Key::Esc,
 };
-
 pub const OPEN_ENVIRONMENTS: &Event = &Event {
     modifier: Some(Modifier::Control),
     key: Key::Char('e'),
 };
-
-pub const CLOSE_ENVIRONMENTS: &Event = &Event {
-    modifier: None,
-    key: Key::Esc,
-};
-pub const NEW_ENVIRONMENT: &Event = &Event {
-    modifier: Some(Modifier::Alt),
-    key: Key::Char('n'),
-};
-
 pub const NAV_UP: &Event = &Event {
     modifier: Some(Modifier::Control),
     key: Key::Char('k'),
@@ -150,7 +137,4 @@ pub fn is_navigation(e: &Event) -> bool {
 
 pub fn is_ctrl_v(e: &Event) -> bool {
     is_modifier(e, vec![Modifier::Control]) && is_key(e, vec![Key::Char('v')])
-}
-pub fn is_ctrl_b(e: &Event) -> bool {
-    is_modifier(e, vec![Modifier::Control]) && is_key(e, vec![Key::Char('b')])
 }

@@ -1,5 +1,5 @@
+use std::fs;
 use std::path::Path;
-use std::{fs, os};
 
 use crate::{
     components::{PopUpComponent, YesNoPopupComponent},
@@ -39,6 +39,7 @@ impl Node {
 pub struct Collection<'a> {
     state: TreeState<String>,
     items: TreeItem<'a, String>,
+    caller: Option<String>,
     delete_pop_up: Option<YesNoPopupComponent<'a>>,
     create_pop_up: Option<PopUpComponent>,
 }
@@ -49,6 +50,7 @@ impl<'a> Collection<'a> {
         Self {
             state: TreeState::default(),
             items,
+            caller: None,
             delete_pop_up: None,
             create_pop_up: None,
         }
@@ -77,11 +79,7 @@ impl<'a> Collection<'a> {
         let all_items = &[self.items.clone()];
         let widget = Tree::new(all_items)
             .expect("all item identifiers are unique")
-            .block(
-                Block::bordered()
-                    .title("Tree Widget")
-                    .title_bottom(format!("{:?}", self.state)),
-            )
+            .block(Block::bordered().title_bottom(format!("{:?}", self.state)))
             .experimental_scrollbar(Some(
                 Scrollbar::new(ScrollbarOrientation::VerticalRight)
                     .begin_symbol(None)
@@ -112,12 +110,16 @@ impl<'a> Collection<'a> {
             .map(|s| s.to_string())
             .collect()
     }
-    pub fn update(&mut self, event: &Event) -> Option<(Action, Vec<String>)> {
+    pub fn set_parent(&mut self, parent: String) {
+        self.caller = Some(parent);
+    }
+    pub fn update(&mut self, event: &Event) -> Option<(Option<String>, Action, Vec<String>)> {
         if let Some(popup) = &mut self.delete_pop_up {
             if let Some(result) = popup.update(event) {
                 self.delete_pop_up = None;
                 if result {
-                    return Some((Action::Delete, self.get_selected()));
+                    self.caller = None;
+                    return Some((self.caller.clone(), Action::Delete, self.get_selected()));
                 }
                 return None;
             }
@@ -137,7 +139,12 @@ impl<'a> Collection<'a> {
                 } else {
                     path.parent().unwrap().join(filename)
                 };
-                return Some((Action::Create, vec![new_path.to_string_lossy().to_string()]));
+                self.caller = None;
+                return Some((
+                    self.caller.clone(),
+                    Action::Create,
+                    vec![new_path.to_string_lossy().to_string()],
+                ));
             } else {
                 self.create_pop_up = None;
                 return None;
@@ -147,14 +154,12 @@ impl<'a> Collection<'a> {
             match modifier {
                 keyModifier::Control => match event.key {
                     Key::Char('d') => {
-                        self.delete_pop_up = Some(YesNoPopupComponent::new("Delete?", "delete"));
+                        self.delete_pop_up = Some(YesNoPopupComponent::new("Delete?"));
                     }
                     Key::Char('n') => {
                         self.create_pop_up = Some(PopUpComponent::new(
                             String::from("new collection"),
                             String::from("Input the name of the new collection"),
-                            None,
-                            None,
                         ));
                     }
                     _ => (),
@@ -165,7 +170,7 @@ impl<'a> Collection<'a> {
         match event.key {
             Key::Enter => {
                 let selected = self.get_selected();
-                Some((Action::AddRequest, selected))
+                Some((self.caller.clone(), Action::AddRequest, selected))
             }
             Key::Char('\n' | ' ') => {
                 self.state.toggle_selected();

@@ -2,6 +2,7 @@ mod address_bar;
 mod blocks;
 mod error_popup;
 mod kv;
+mod multi_option;
 mod pop_up;
 mod request_tab;
 mod requests;
@@ -15,6 +16,7 @@ pub use error_popup::error_popup;
 
 pub use address_bar::AddressBarComponent;
 pub use kv::KV;
+pub use multi_option::MultiOptionWidget;
 pub use pop_up::PopUpComponent;
 pub use request_tab::RequestTabComponent;
 pub use requests::RequestsComponent;
