@@ -187,6 +187,20 @@ impl Request {
     pub fn headers(&self) -> Option<Vec<(String, String, bool)>> {
         self.headers.clone()
     }
+    pub fn toggle_header_active(&mut self, index: usize) {
+        if let Some(headers) = &mut self.headers {
+            if let Some(header) = headers.get_mut(index) {
+                header.2 = !header.2;
+            }
+        }
+    }
+    pub fn toggle_param_active(&mut self, index: usize) {
+        if let Some(params) = &mut self.params {
+            if let Some(param) = params.get_mut(index) {
+                param.2 = !param.2;
+            }
+        }
+    }
     pub fn handle_params(&self) -> HashMap<String, String> {
         let h = self
             .params

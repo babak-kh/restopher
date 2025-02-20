@@ -7,8 +7,9 @@ use crate::{
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
+    prelude::*,
     text::Span,
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState},
     Frame,
 };
 pub use request_tab::{ReqTabs, RequestTabOptions};
@@ -27,7 +28,9 @@ pub struct RequestTabComponent<'a> {
     req_tabs: ReqTabs<'a>,
 
     new_header: KV,
+    header_idx: usize,
     new_param: KV,
+    param_idx: usize,
     body_view: TextArea,
     temp_body: String,
     request_body_options: RequestBodyOptions,
@@ -40,7 +43,9 @@ impl<'a> RequestTabComponent<'a> {
             focused: true,
             req_tabs: ReqTabs::new(),
             new_param: KV::new(),
+            param_idx: 0,
             new_header: KV::new(),
+            header_idx: 0,
             body_view: TextArea::new(),
             temp_body: String::from(""),
             request_body_options: RequestBodyOptions::Json,
@@ -99,7 +104,7 @@ impl<'a> RequestTabComponent<'a> {
             _ => (),
         };
     }
-    fn handle_header_update(&mut self, _: &mut Request, event: Event) {
+    fn handle_header_update(&mut self, req: &mut Request, event: Event) {
         if let Some(modifier) = event.modifier {
             match modifier {
                 Modifier::Control => match event.key {
@@ -112,8 +117,43 @@ impl<'a> RequestTabComponent<'a> {
                 _ => (),
             }
         }
+        match event.key {
+            Key::Space => {
+                if let Some(header) = req.headers() {
+                    if header.len() == 0 {
+                        return;
+                    }
+                    req.toggle_header_active(self.header_idx);
+                };
+            }
+            Key::Down => {
+                if let Some(header) = req.headers() {
+                    if header.len() == 0 {
+                        return;
+                    }
+                    if self.header_idx == header.len() - 1 {
+                        self.header_idx = 0;
+                        return;
+                    }
+                    self.header_idx += 1;
+                }
+            }
+            Key::Up => {
+                if let Some(header) = req.headers() {
+                    if header.len() == 0 {
+                        return;
+                    }
+                    if self.header_idx == 0 {
+                        self.header_idx = header.len() - 1;
+                        return;
+                    }
+                    self.header_idx -= 1;
+                }
+            }
+            _ => (),
+        }
     }
-    fn handle_param_update(&mut self, _: &mut Request, event: Event) {
+    fn handle_param_update(&mut self, req: &mut Request, event: Event) {
         if let Some(modifier) = event.modifier {
             match modifier {
                 Modifier::Control => match event.key {
@@ -125,6 +165,41 @@ impl<'a> RequestTabComponent<'a> {
                 },
                 _ => (),
             }
+        }
+        match event.key {
+            Key::Space => {
+                if let Some(param) = req.params() {
+                    if param.len() == 0 {
+                        return;
+                    }
+                    req.toggle_param_active(self.param_idx);
+                };
+            }
+            Key::Down => {
+                if let Some(param) = req.params() {
+                    if param.len() == 0 {
+                        return;
+                    }
+                    if self.param_idx == param.len() - 1 {
+                        self.param_idx = 0;
+                        return;
+                    }
+                    self.param_idx += 1;
+                }
+            }
+            Key::Up => {
+                if let Some(param) = req.params() {
+                    if param.len() == 0 {
+                        return;
+                    }
+                    if self.param_idx == 0 {
+                        self.param_idx = param.len() - 1;
+                        return;
+                    }
+                    self.param_idx -= 1;
+                }
+            }
+            _ => (),
         }
     }
     fn handle_body_update(&mut self, _: &mut Request, event: Event) {
@@ -201,7 +276,7 @@ impl<'a> RequestTabComponent<'a> {
                     f,
                     "Headers",
                     &request.headers(),
-                    Some(0),
+                    None,
                     self.focused,
                     chunks_vertical[0],
                 );
@@ -212,7 +287,7 @@ impl<'a> RequestTabComponent<'a> {
                     f,
                     "Headers",
                     &request.headers(),
-                    Some(0),
+                    Some(self.header_idx),
                     self.focused,
                     rect,
                 );
@@ -245,14 +320,21 @@ impl<'a> RequestTabComponent<'a> {
                     f,
                     "Params",
                     &request.params(),
-                    Some(0),
+                    None,
                     self.focused,
                     chunks_vertical[0],
                 );
                 self.new_param.draw(f, chunks_vertical[1]);
             }
             _ => {
-                render_items(f, "Params", &request.params(), Some(0), self.focused, rect);
+                render_items(
+                    f,
+                    "Params",
+                    &request.params(),
+                    Some(self.param_idx),
+                    self.focused,
+                    rect,
+                );
             }
         };
     }
@@ -300,7 +382,7 @@ fn render_items(
     f: &mut Frame,
     block_title: &str,
     items: &Option<Vec<(String, String, bool)>>,
-    _: Option<usize>,
+    state: Option<usize>,
     focused: bool,
     rect: Rect,
 ) {
@@ -314,19 +396,29 @@ fn render_items(
             ]));
         }
         // Create table
-        f.render_widget(
-            Table::new(
-                rows,
-                vec![
-                    Constraint::Length(10),
-                    Constraint::Length(10),
-                    Constraint::Length(10),
-                ],
-            )
-            .header(Row::new(vec!["Key", "Value", "Active"]))
-            .block(Block::default().borders(Borders::ALL).title("Table")),
-            rect,
-        );
+        let table = Table::new(
+            rows,
+            vec![
+                Constraint::Length(10),
+                Constraint::Length(10),
+                Constraint::Length(10),
+            ],
+        )
+        .header(Row::new(vec!["Key", "Value", "Active"]))
+        .block(Block::default().borders(Borders::ALL).title("Table"));
+
+        match state {
+            Some(n) => {
+                f.render_stateful_widget(
+                    table.highlight_style(Style::default().fg(Color::White).bg(Color::Blue)),
+                    rect,
+                    &mut TableState::new().with_selected(n),
+                );
+            }
+            None => {
+                f.render_widget(table, rect);
+            }
+        }
     }
     f.render_widget(
         Paragraph::new("").block(default_block(Some(block_title), focused)),

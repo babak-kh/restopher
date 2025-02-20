@@ -91,6 +91,8 @@ impl KV {
             .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
             .split(rect);
         self.key.text.draw(f, chunks[0], "Key", self.key.active);
-        self.value.text.draw(f, chunks[0], "Key", self.key.active);
+        self.value
+            .text
+            .draw(f, chunks[1], "Value", self.value.active);
     }
 }

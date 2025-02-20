@@ -17,6 +17,7 @@ pub enum Key {
     Esc,
     Enter,
     Tab,
+    Space,
 }
 #[derive(PartialEq, Eq, Debug)]
 pub struct Event {
@@ -69,6 +70,7 @@ pub fn transform(key: KeyEvent) -> Event {
         KeyCode::Right => k = Key::Right,
         KeyCode::Up => k = Key::Up,
         KeyCode::Down => k = Key::Down,
+        KeyCode::Char(' ') => k = Key::Space,
         KeyCode::Home => todo!(),
         KeyCode::End => todo!(),
         KeyCode::PageUp => todo!(),

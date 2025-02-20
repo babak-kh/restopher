@@ -29,6 +29,13 @@ impl AddressBarComponent {
             address_bar_view: TextBox::new(),
         }
     }
+    pub fn from(request: &Request) -> Self {
+        AddressBarComponent {
+            focus: Focus::Address,
+            is_focused: false,
+            address_bar_view: TextBox::from(request.address()),
+        }
+    }
     pub fn is_focused(&self) -> bool {
         self.is_focused
     }

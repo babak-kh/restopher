@@ -36,6 +36,7 @@ pub enum Error {
     JsonErr(serde_json::Error),
     HeaderIsNotString,
     FileOperationsErr(std::io::Error),
+    InputErr(String),
 }
 
 impl Error {
@@ -46,6 +47,7 @@ impl Error {
             Error::JsonErr(e) => e.to_string(),
             Error::HeaderIsNotString => "header is not string".to_string(),
             Error::FileOperationsErr(e) => e.to_string(),
+            Error::InputErr(e) => e.to_string(),
         }
     }
 }
@@ -185,14 +187,17 @@ impl<'a> App<'a> {
                 }
                 ChangeEvent::NewRequest => {
                     self.new_request();
+                    self.change_request();
                     return Ok(None);
                 }
                 ChangeEvent::PreRequest => {
                     self.pre_req();
+                    self.change_request();
                     return Ok(None);
                 }
                 ChangeEvent::NextRequest => {
                     self.next_req();
+                    self.change_request();
                     return Ok(None);
                 }
                 ChangeEvent::CallRequest => {
@@ -235,6 +240,15 @@ impl<'a> App<'a> {
         }
         return Ok(None);
     }
+    fn change_request(&mut self) {
+        let req = &self.requests[self.current_request_idx];
+        let was_focused = self.address_bar.is_focused();
+        self.address_bar = AddressBarComponent::from(req);
+        if was_focused {
+            self.address_bar.gain_focus();
+        }
+    }
+
     fn reload_collections(&mut self) {
         self.collections = Collection::default(format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH));
     }
@@ -480,6 +494,7 @@ impl<'a> App<'a> {
                             let mut req: super::request::Request =
                                 serde_json::from_reader(fs::File::open(path.clone())?)?;
                             req.set_collection_path(path.to_owned());
+                            trace_dbg!(level: tracing::Level::INFO, &req);
                             req
                         });
                         return Ok(());
@@ -517,7 +532,6 @@ impl<'a> App<'a> {
 
     fn create_new_collection(&mut self, paths: Vec<String>) -> Result<(), Error> {
         if let Some(path) = paths.last() {
-            trace_dbg!(level: tracing::Level::INFO, ("in creating", &paths));
             fs::create_dir(path.clone())?;
             return Ok(());
         };
@@ -534,13 +548,19 @@ impl<'a> App<'a> {
             match action {
                 Action::Delete => self.delete_request(paths)?,
                 Action::Create => self.create_new_collection(paths)?,
-                Action::AddRequest => match caller {
-                    Some(_) => self::update_request_collection(
-                        &mut self.requests[self.current_request_idx],
-                        paths,
-                    )?,
-                    None => self.add_request_from_collection(paths)?,
-                },
+                Action::AddRequest => {
+                    match caller {
+                        Some(_) => self::update_request_collection(
+                            &mut self.requests[self.current_request_idx],
+                            paths,
+                        )?,
+                        None => {
+                            self.add_request_from_collection(paths)?;
+                            self.change_request();
+                        }
+                    }
+                    self.main_window = MainWindows::Main;
+                }
             };
             self.reload_collections();
         }
@@ -605,9 +625,14 @@ pub fn update_request_collection(
     paths: Vec<String>,
 ) -> Result<(), Error> {
     if let Some(path) = paths.last() {
-        let mut f = fs::File::create(path)?;
+        trace_dbg!(level: tracing::Level::INFO, ("in update", &path));
+        if !fs::metadata(path.clone())?.is_dir() {
+            return Err(Error::InputErr("not a directory".to_string()));
+        }
+        let path = format!("{}/{}.rph", path, req.name());
+        let mut f = fs::File::create(path.clone())?;
         f.write(serde_json::to_vec(req).unwrap().as_slice())?;
-        req.set_collection_path(path.clone());
+        req.set_collection_path(path);
         return Ok(());
     }
     Err(Error::NoRequestErr(1))

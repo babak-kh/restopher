@@ -85,10 +85,10 @@ impl TextBox {
     pub fn get_content_styled(&self, to_fill: &mut Vec<Span>, is_focused: bool) {
         to_fill.clear();
         let cont = self.get_content();
-        to_fill.push(Span::from(cont.clone()));
 
         if is_focused {
             if self.cursor_pos >= self.buffer.len() {
+                to_fill.push(Span::from(cont.clone()));
                 to_fill.push(Span::from("_".to_string()));
             } else {
                 let (left, right) = cont.split_at(self.cursor_pos);
@@ -99,10 +99,13 @@ impl TextBox {
                         Span::from(rest.to_string()),
                     )
                 };
+                // trace_dbg!( level: tracing::Level::INFO, (left, rest2.0.clone(), rest2.1.clone()));
                 to_fill.push(Span::from(left.to_string()));
                 to_fill.push(rest2.0);
                 to_fill.push(rest2.1);
             }
+        } else {
+            to_fill.push(Span::from(cont));
         }
     }
     pub fn draw(&self, f: &mut Frame, rect: Rect, _: &str, is_focused: bool) {
