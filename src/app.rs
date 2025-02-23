@@ -8,6 +8,7 @@ use crate::{
     trace_dbg,
 };
 use crate::{
+    components::RequestsAction,
     components::{
         AddressBarComponent, RequestTabComponent, RequestsComponent, ResponseTabComponent,
     },
@@ -163,7 +164,9 @@ impl<'a> App<'a> {
             }
             match self.main_window {
                 MainWindows::Main => {
-                    self.main_window_update(&even)?;
+                    if self.main_window_update(&even)?.is_some() {
+                        return Ok(None);
+                    }
                 }
                 MainWindows::Environments => {
                     self.environment_main_window_update(&even)?;
@@ -213,7 +216,7 @@ impl<'a> App<'a> {
             }
             if self.req_tabs.is_focused() {
                 self.req_tabs
-                    .update(&mut self.requests[self.current_request_idx], even);
+                    .update(&mut self.requests[self.current_request_idx], &even);
                 return Ok(None);
             }
             if self.address_bar.is_focused() {
@@ -227,13 +230,19 @@ impl<'a> App<'a> {
                 return Ok(None);
             }
             if self.requests_component.is_focused() {
-                self.requests_component.update(
+                if let Some(req_action) = self.requests_component.update(
                     &mut self.requests,
                     &mut self.current_request_idx,
                     &mut self.all_envs,
                     &mut self.current_env_idx,
                     &even,
-                );
+                ) {
+                    match req_action {
+                        RequestsAction::RequestRemoved => self.change_request(),
+                        RequestsAction::RequestIndexChanged => self.change_request(),
+                        RequestsAction::RequestCreated => self.change_request(),
+                    }
+                }
                 return Ok(None);
             }
             return Ok(None);
@@ -247,6 +256,7 @@ impl<'a> App<'a> {
         if was_focused {
             self.address_bar.gain_focus();
         }
+        self.req_tabs = RequestTabComponent::from(req, self.req_tabs.is_focused());
     }
 
     fn reload_collections(&mut self) {
@@ -577,18 +587,18 @@ impl<'a> App<'a> {
                     self.collections.set_parent("multi_option".to_string());
                 }
                 self.mutli_option_save_request = None;
-                return Ok(None);
+                return Ok(Some(()));
             }
-            return Ok(None);
+            return Ok(Some(()));
         }
         if matches!(even, OPEN_COLLECTIONS) {
             self.main_window = MainWindows::Collections;
-            return Ok(None);
+            return Ok(Some(()));
         };
         if matches!(even, OPEN_ENVIRONMENTS) {
             self.main_window = MainWindows::Environments;
             self.temp_envs = Some(TempEnv::new(self.all_envs.clone(), self.current_env_idx));
-            return Ok(None);
+            return Ok(Some(()));
         }
         Ok(None)
     }
@@ -614,8 +624,12 @@ impl<'a> App<'a> {
 }
 
 pub fn handle_overwrite_request(req: &super::request::Request) -> Result<(), Error> {
-    let path = req.collection_path().unwrap();
+    let path_str = req.collection_path().unwrap().clone();
+    let mut path = std::path::PathBuf::from(&path_str);
     fs::remove_file(path.clone())?;
+    if !path.ends_with(req.name()) {
+        path = path.parent().unwrap().join(format!("{}.rph", req.name()));
+    }
     let mut f = fs::File::create(path)?;
     f.write(serde_json::to_vec(req).unwrap().as_slice())?;
     Ok(())

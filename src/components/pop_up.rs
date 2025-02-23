@@ -4,7 +4,8 @@ use crate::{
 };
 use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
-    widgets::{Block, Borders, Paragraph},
+    prelude::*,
+    widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
 
@@ -43,6 +44,26 @@ impl PopUpComponent {
         }
     }
     pub fn draw(&self, f: &mut Frame, rect: Rect) {
+        let margin = 1;
+        let container = Rect {
+            x: rect.left() - margin,
+            y: rect.top() - margin,
+            width: rect.right() - rect.left() + (2 * margin),
+            height: rect.bottom() - rect.top() + (2 * margin),
+        };
+        f.render_widget(Clear, container);
+        f.render_widget(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::White))
+                .title(Span::styled(
+                    self.title.as_str(),
+                    Style::default().fg(Color::White),
+                ))
+                .title_alignment(Alignment::Center)
+                .add_modifier(Modifier::BOLD),
+            container,
+        );
         Layout::default()
             .margin(1)
             .constraints([Constraint::Length(3), Constraint::Min(0)])

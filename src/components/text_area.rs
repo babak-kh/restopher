@@ -32,6 +32,18 @@ impl TextArea {
             error: String::from(""),
         }
     }
+    pub fn from(lines: String, is_focused: bool, mutable: bool) -> Self {
+        TextArea {
+            lines: lines
+                .lines()
+                .map(|l| l.to_string())
+                .collect::<Vec<String>>(),
+            cursor_pos: (0, 0),
+            is_focused,
+            mutable,
+            error: String::from(""),
+        }
+    }
     pub fn set_focus(&mut self, focus: bool) {
         self.is_focused = focus;
     }
@@ -237,27 +249,23 @@ impl TextArea {
         let display_lines = self.lines.clone();
         let mut modified_lines = Vec::new();
         let actual_height = chunks[1].height as usize - 2;
-        let actual_width = chunks[1].width as usize - 2;
+        let actual_width = chunks[1].width as usize - 20;
+        let mut repeat: usize = 0;
         for line_idx in 0..display_lines.len() {
-            let mut repeat: usize = 0;
             let line = display_lines.get(line_idx).unwrap();
             split_line_with_width(&line, actual_width, &mut modified_lines, &mut repeat);
         }
-        self.lines = modified_lines.clone();
+        //self.lines = modified_lines.clone();
         let mut diff = 0;
         if self.cursor_pos.1 >= actual_height + 1 {
             diff = self.cursor_pos.1 - actual_height + 1;
             modified_lines = modified_lines[diff..].to_vec();
         };
-        let paragraph = Paragraph::new(TextArea::style_cursor(
-            &modified_lines,
-            self.cursor_pos,
-            diff,
-        ))
-        .block(default_block(Some("Body"), self.is_focused))
-        .wrap(Wrap { trim: false });
+        let paragraph = Paragraph::new(TextArea::style_cursor(&self.lines, self.cursor_pos, diff))
+            .block(default_block(Some("Body"), self.is_focused))
+            .wrap(Wrap { trim: false });
         trace_dbg!(level: tracing::Level::INFO, self.cursor_pos);
-        trace_dbg!(level: tracing::Level::INFO, self.lines.clone());
+        //trace_dbg!(level: tracing::Level::INFO, self.lines.clone());
         f.render_widget(paragraph, chunks[1]);
 
         let mut state = ScrollbarState::default()
@@ -277,29 +285,64 @@ impl TextArea {
             &mut state,
         );
     }
-    fn style_cursor(
-        content: &Vec<String>,
-        cursor_position: (usize, usize),
-        moved: usize,
-    ) -> Vec<Line> {
+    fn calculate_wrapped_position(
+        original_pos: (usize, usize),
+        width: usize,
+        lines: &[String],
+    ) -> (usize, usize) {
+        let mut wrapped_line = 0;
+        let mut char_count = 0;
+
+        // Count wrapped lines up to the cursor's line
+        for (idx, line) in lines[..=original_pos.1].iter().enumerate() {
+            if idx < original_pos.1 {
+                wrapped_line += (line.len() + width - 1) / width;
+            } else {
+                // For the cursor's line, calculate exact position
+                let full_lines = original_pos.0 / width;
+                wrapped_line += full_lines;
+                char_count = original_pos.0 % width;
+            }
+        }
+
+        (char_count, wrapped_line)
+    }
+
+    fn style_cursor(content: &Vec<String>, cursor_position: (usize, usize), _: usize) -> Vec<Line> {
         let mut lines: Vec<Line> = Vec::new();
-        for (idx, line) in content.iter().enumerate() {
-            if cursor_position.1 == idx + moved {
-                if cursor_position.0 == line.len() {
-                    let mut ll = Line::raw(line);
-                    ll.push_span(cursor_like_span(' '));
+        let width = 80; // This should match actual_width from draw()
+        let wrapped_pos = Self::calculate_wrapped_position(cursor_position, width, content);
+
+        let mut current_wrapped_line = 0;
+        for line in content {
+            // Create chunks as owned Strings
+            let chunks: Vec<String> = line
+                .chars()
+                .collect::<Vec<char>>()
+                .chunks(width)
+                .map(|c| c.iter().collect::<String>())
+                .collect();
+
+            for chunk in chunks {
+                if current_wrapped_line == wrapped_pos.1 {
+                    let mut ll = Line::default();
+                    if wrapped_pos.0 >= chunk.len() {
+                        ll.push_span(Span::raw(chunk));
+                        ll.push_span(cursor_like_span(' '));
+                    } else {
+                        let (before, rest) = chunk.split_at(wrapped_pos.0);
+                        ll.push_span(Span::raw(before.to_string()));
+                        let cursor_char = rest.chars().next().unwrap_or(' ');
+                        ll.push_span(cursor_like_span(cursor_char));
+                        if wrapped_pos.0 + 1 < chunk.len() {
+                            ll.push_span(Span::raw(rest[1..].to_string()));
+                        }
+                    }
                     lines.push(ll);
                 } else {
-                    let mut ll = Line::default();
-                    ll.push_span(Span::raw(&line[..cursor_position.0]));
-                    ll.push_span(cursor_like_span(
-                        line.chars().nth(cursor_position.0).unwrap(),
-                    ));
-                    ll.push_span(Span::raw(&line[cursor_position.0 + 1..]));
-                    lines.push(ll);
-                };
-            } else {
-                lines.push(Line::raw(line));
+                    lines.push(Line::raw(chunk));
+                }
+                current_wrapped_line += 1;
             }
         }
         lines

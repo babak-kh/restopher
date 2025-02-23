@@ -2,9 +2,10 @@ mod request_tab;
 mod view;
 
 use crate::{
+    keys::keys::is_ctrl_v,
     request::{Body, BodyKind},
-    trace_dbg,
 };
+use copypasta::{ClipboardContext, ClipboardProvider};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     prelude::*,
@@ -51,61 +52,83 @@ impl<'a> RequestTabComponent<'a> {
             request_body_options: RequestBodyOptions::Json,
         }
     }
+    pub fn from(request: &Request, focus: bool) -> Self {
+        let body_view = TextArea::from(request.resp_body_formatted().clone(), false, true);
+        RequestTabComponent {
+            focus: Focus::Header,
+            focused: focus,
+            req_tabs: ReqTabs::new(),
+            new_param: KV::new(),
+            param_idx: 0,
+            new_header: KV::new(),
+            header_idx: 0,
+            temp_body: body_view.get_content(),
+            body_view,
+            request_body_options: RequestBodyOptions::Json,
+        }
+    }
     pub fn update_inner_focus(&mut self) {
         self.focus = self.focus.next();
         self.req_tabs.next();
     }
-    pub fn update(&mut self, req: &mut Request, event: Event) {
+    pub fn update(&mut self, req: &mut Request, event: &Event) {
         match &self.focus {
-            Focus::NewHeaderKV => self.handle_new_header_update(req, event),
-            Focus::NewParamKV => self.handle_new_param_update(req, event),
+            Focus::NewHeaderKV => {
+                RequestTabComponent::handle_new_header_or_param_update(
+                    req,
+                    &mut self.new_header,
+                    event,
+                    Request::add_to_header,
+                    &mut self.focus,
+                );
+            }
+            Focus::NewParamKV => {
+                RequestTabComponent::handle_new_header_or_param_update(
+                    req,
+                    &mut self.new_param,
+                    event,
+                    Request::add_to_param,
+                    &mut self.focus,
+                );
+            }
             Focus::Header => self.handle_header_update(req, event),
             Focus::Param => self.handle_param_update(req, event),
             Focus::Body => self.handle_body_update(req, event),
         }
     }
-    fn handle_new_header_update(&mut self, req: &mut Request, event: Event) {
+    fn handle_new_header_or_param_update(
+        req: &mut Request,
+        kv: &mut KV,
+        event: &Event,
+        change_fn: impl FnOnce(&mut Request, String, String, bool),
+        focus: &mut Focus,
+    ) {
+        if is_ctrl_v(event) {
+            let mut ctx = ClipboardContext::new().unwrap();
+            kv.paste(ctx.get_contents().unwrap());
+            return;
+        };
         match event.key {
             Key::Enter => {
-                req.add_to_header(self.new_header.get_key(), self.new_header.get_value(), true);
-                self.new_header.clear();
-                self.focus = Focus::Header;
+                change_fn(req, kv.get_key(), kv.get_value(), true);
+                kv.clear();
+                *focus = Focus::Header;
             }
             Key::Tab => {
-                self.new_header.change_active();
+                kv.change_active();
             }
             Key::Char(x) => {
-                self.new_header.add_to_active(x);
+                kv.add_to_active(x);
             }
             Key::Backspace => {
-                self.new_header.remove_from_active();
+                kv.remove_from_active();
             }
-            Key::Esc => self.focus = Focus::Header,
+            Key::Esc => *focus = Focus::Header,
             _ => (),
         }
     }
-    fn handle_new_param_update(&mut self, req: &mut Request, event: Event) {
-        match event.key {
-            Key::Enter => {
-                req.add_to_param(self.new_param.get_key(), self.new_param.get_value(), true);
-                self.new_param.clear();
-                self.focus = Focus::Param;
-            }
-            Key::Tab => {
-                self.new_param.change_active();
-            }
-            Key::Char(x) => {
-                self.new_param.add_to_active(x);
-            }
-            Key::Backspace => {
-                self.new_param.remove_from_active();
-            }
-            Key::Esc => self.focus = Focus::Param,
-            _ => (),
-        };
-    }
-    fn handle_header_update(&mut self, req: &mut Request, event: Event) {
-        if let Some(modifier) = event.modifier {
+    fn handle_header_update(&mut self, req: &mut Request, event: &Event) {
+        if let Some(modifier) = &event.modifier {
             match modifier {
                 Modifier::Control => match event.key {
                     Key::Char('n') => {
@@ -153,8 +176,8 @@ impl<'a> RequestTabComponent<'a> {
             _ => (),
         }
     }
-    fn handle_param_update(&mut self, req: &mut Request, event: Event) {
-        if let Some(modifier) = event.modifier {
+    fn handle_param_update(&mut self, req: &mut Request, event: &Event) {
+        if let Some(modifier) = &event.modifier {
             match modifier {
                 Modifier::Control => match event.key {
                     Key::Char('n') => {
@@ -202,7 +225,7 @@ impl<'a> RequestTabComponent<'a> {
             _ => (),
         }
     }
-    fn handle_body_update(&mut self, _: &mut Request, event: Event) {
+    fn handle_body_update(&mut self, req: &mut Request, event: &Event) {
         if let Some(modifier) = &event.modifier {
             match modifier {
                 Modifier::Control => match event.key {
@@ -213,7 +236,6 @@ impl<'a> RequestTabComponent<'a> {
                     Key::Char('b') => {
                         match self.request_body_options {
                             RequestBodyOptions::Json => {
-                                trace_dbg!(level:tracing::Level::INFO, &self.temp_body);
                                 if let Err(e) = from_str::<serde_json::Value>(&self.temp_body) {
                                     self.body_view.set_error(e.to_string());
                                     return;
@@ -235,12 +257,20 @@ impl<'a> RequestTabComponent<'a> {
                 self.temp_body
                     .insert(self.body_view.get_flattened_cursor_position(), c);
                 self.body_view.push(c);
+                Self::set_req_body(self, req);
+            }
+            Key::Space => {
+                self.temp_body
+                    .insert(self.body_view.get_flattened_cursor_position(), ' ');
+                self.body_view.push(' ');
+                Self::set_req_body(self, req);
             }
             Key::Backspace => {
                 let pos = self.body_view.get_flattened_cursor_position();
                 if pos != 0 {
                     self.temp_body.remove(pos - 1);
                     self.body_view.pop();
+                    Self::set_req_body(self, req);
                 }
             }
             Key::Enter => {
@@ -248,8 +278,26 @@ impl<'a> RequestTabComponent<'a> {
                     .insert(self.body_view.get_flattened_cursor_position(), '\n');
                 self.body_view.new_line();
             }
+            Key::Down => {
+                self.body_view.cursor_down();
+            }
+            Key::Up => {
+                self.body_view.cursor_up();
+            }
+            Key::Left => {
+                self.body_view.cursor_pre();
+            }
+            Key::Right => {
+                self.body_view.cursor_next();
+            }
             _ => (),
         }
+    }
+    fn set_req_body(&mut self, req: &mut Request) {
+        req.set_body(Body {
+            payload: Some(self.body_view.get_content()),
+            kind: BodyKind::JSON,
+        });
     }
     pub fn is_focused(&self) -> bool {
         self.focused

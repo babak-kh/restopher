@@ -53,6 +53,13 @@ impl KV {
         }
         self.value.text.push(ch);
     }
+    pub fn paste(&mut self, text: String) {
+        if self.key.active {
+            self.key.text.paste(text);
+            return;
+        }
+        self.value.text.paste(text);
+    }
     pub fn remove_from_active(&mut self) {
         if self.key.active {
             self.key.text.pop();

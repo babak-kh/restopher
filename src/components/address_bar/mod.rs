@@ -84,6 +84,7 @@ impl AddressBarComponent {
                     Some("Verb"),
                     self.is_focused && matches!(self.focus, Focus::Verb),
                 ))
+                .style(req.verb().style())
                 .wrap(Wrap { trim: true }),
             chunks[0],
         );

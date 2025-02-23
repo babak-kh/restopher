@@ -50,6 +50,10 @@ impl TextBox {
         self.cursor_pos -= 1;
         self.buffer.remove(self.cursor_pos);
     }
+    pub fn paste(&mut self, text: String) {
+        self.buffer.insert_str(self.cursor_pos, &text);
+        self.cursor_pos += text.len();
+    }
     pub fn cursor_pre(&mut self) {
         if self.cursor_pos == 0 {
             return;

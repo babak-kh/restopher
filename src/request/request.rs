@@ -1,5 +1,6 @@
 use crate::request::body::{Body, BodyKind};
 use crate::trace_dbg;
+use ratatui::style::{Color, Style};
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -39,6 +40,15 @@ impl HttpVerb {
             HttpVerb::POST => HttpVerb::GET,
             HttpVerb::PUT => HttpVerb::POST,
             HttpVerb::DELETE => HttpVerb::PUT,
+        }
+    }
+    pub fn style(&self) -> Style {
+        let style = Style::default();
+        match self {
+            HttpVerb::GET => style.fg(Color::Green),
+            HttpVerb::POST => style.fg(Color::Yellow),
+            HttpVerb::PUT => style.fg(Color::Blue),
+            HttpVerb::DELETE => style.fg(Color::Red),
         }
     }
 }

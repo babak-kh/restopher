@@ -19,6 +19,6 @@ pub use kv::KV;
 pub use multi_option::MultiOptionWidget;
 pub use pop_up::PopUpComponent;
 pub use request_tab::RequestTabComponent;
-pub use requests::RequestsComponent;
+pub use requests::{Action as RequestsAction, RequestsComponent};
 pub use response_tab::ResponseTabComponent;
 pub use yes_no_popup::YesNoPopupComponent;
