@@ -53,7 +53,7 @@ impl<'a> RequestTabComponent<'a> {
         }
     }
     pub fn from(request: &Request, focus: bool) -> Self {
-        let body_view = TextArea::from(request.resp_body_formatted().clone(), false, true);
+        let body_view = TextArea::from(request.body().payload.unwrap_or_default(), false, true);
         RequestTabComponent {
             focus: Focus::Header,
             focused: focus,
@@ -135,6 +135,14 @@ impl<'a> RequestTabComponent<'a> {
                         self.focus = Focus::NewHeaderKV;
                         self.new_header = KV::new();
                     }
+                    Key::Char('d') => {
+                        if let Some(header) = req.headers() {
+                            if header.len() == 0 {
+                                return;
+                            }
+                            req.remove_header(self.header_idx);
+                        }
+                    }
                     _ => (),
                 },
                 _ => (),
@@ -184,6 +192,15 @@ impl<'a> RequestTabComponent<'a> {
                         self.focus = Focus::NewParamKV;
                         self.new_param = KV::new();
                     }
+                    Key::Char('d') => match req.params() {
+                        Some(param) => {
+                            if param.len() == 0 {
+                                return;
+                            }
+                            req.remove_param(self.param_idx);
+                        }
+                        _ => (),
+                    },
                     _ => (),
                 },
                 _ => (),

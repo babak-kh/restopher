@@ -11,7 +11,6 @@ use crate::{
     components::default_block,
     keys::keys::{Event, Key, Modifier as keyModifier},
     styles::cursor_like_span,
-    trace_dbg,
 };
 
 pub struct TextArea {
@@ -99,49 +98,34 @@ impl TextArea {
         self.cursor_pos.0 -= 1;
     }
     pub fn cursor_pre(&mut self) {
-        if self.cursor_pos.0 == 1 && self.cursor_pos.1 == 0 {
-            return;
-        }
-        if self.cursor_pos.0 == 0 {
+        if self.cursor_pos.0 > 0 {
+            self.cursor_pos.0 -= 1;
+        } else if self.cursor_pos.1 > 0 {
             self.cursor_pos.1 -= 1;
             self.cursor_pos.0 = self.lines[self.cursor_pos.1].len();
-            return;
         }
-        self.cursor_pos.0 -= 1;
     }
+
     pub fn cursor_next(&mut self) {
-        if self.is_on_last_line() && self.is_on_last_char() {
-            return;
-        }
-        if !self.is_on_last_line() && self.is_on_last_char() {
+        if self.cursor_pos.0 < self.lines[self.cursor_pos.1].len() {
+            self.cursor_pos.0 += 1;
+        } else if self.cursor_pos.1 < self.lines.len() - 1 {
             self.cursor_pos.1 += 1;
             self.cursor_pos.0 = 0;
-            return;
         }
-        self.cursor_pos.0 += 1;
     }
     pub fn cursor_up(&mut self) {
-        if self.is_on_first_line() {
-            return;
-        }
-        self.cursor_pos.1 -= 1;
-        match self.lines[self.cursor_pos.1].chars().nth(self.cursor_pos.0) {
-            None => {
-                self.cursor_pos.0 = self.lines[self.cursor_pos.1].len();
-            }
-            Some(_) => {}
+        if self.cursor_pos.1 > 0 {
+            self.cursor_pos.1 -= 1;
+            let line_len = self.lines[self.cursor_pos.1].len();
+            self.cursor_pos.0 = self.cursor_pos.0.min(line_len);
         }
     }
     pub fn cursor_down(&mut self) {
-        if self.is_on_last_line() {
-            return;
-        }
-        self.cursor_pos.1 += 1;
-        match self.lines[self.cursor_pos.1].chars().nth(self.cursor_pos.0) {
-            None => {
-                self.cursor_pos.0 = self.lines[self.cursor_pos.1].len();
-            }
-            Some(_) => {}
+        if self.cursor_pos.1 < self.lines.len() - 1 {
+            self.cursor_pos.1 += 1;
+            let line_len = self.lines[self.cursor_pos.1].len();
+            self.cursor_pos.0 = self.cursor_pos.0.min(line_len);
         }
     }
     fn is_on_last_line(&self) -> bool {
@@ -149,12 +133,6 @@ impl TextArea {
             return true;
         }
         self.cursor_pos.1 == self.lines.len() - 1
-    }
-    fn is_on_first_line(&self) -> bool {
-        self.cursor_pos.1 == 0
-    }
-    fn is_on_last_char(&self) -> bool {
-        self.cursor_pos.0 == self.lines[self.cursor_pos.1].len()
     }
     pub fn get_content(&self) -> String {
         self.lines.join("\n")
@@ -246,25 +224,25 @@ impl TextArea {
             f.render_widget(paragraph, chunks[0]);
         }
 
-        let display_lines = self.lines.clone();
-        let mut modified_lines = Vec::new();
         let actual_height = chunks[1].height as usize - 2;
         let actual_width = chunks[1].width as usize - 20;
-        let mut repeat: usize = 0;
-        for line_idx in 0..display_lines.len() {
-            let line = display_lines.get(line_idx).unwrap();
-            split_line_with_width(&line, actual_width, &mut modified_lines, &mut repeat);
-        }
-        //self.lines = modified_lines.clone();
         let mut diff = 0;
         if self.cursor_pos.1 >= actual_height + 1 {
             diff = self.cursor_pos.1 - actual_height + 1;
-            modified_lines = modified_lines[diff..].to_vec();
         };
-        let paragraph = Paragraph::new(TextArea::style_cursor(&self.lines, self.cursor_pos, diff))
-            .block(default_block(Some("Body"), self.is_focused))
-            .wrap(Wrap { trim: false });
-        trace_dbg!(level: tracing::Level::INFO, self.cursor_pos);
+        let mut end_show_idx = diff + actual_height;
+        if self.lines.len() < end_show_idx {
+            end_show_idx = self.lines.len();
+        }
+        let show_lines = &self.lines[diff..end_show_idx].to_vec();
+        let paragraph = Paragraph::new(TextArea::style_cursor(
+            show_lines,
+            self.cursor_pos,
+            actual_width,
+        ))
+        .block(default_block(Some("Body"), self.is_focused))
+        .wrap(Wrap { trim: false });
+        //trace_dbg!(level: tracing::Level::INFO, self.cursor_pos);
         //trace_dbg!(level: tracing::Level::INFO, self.lines.clone());
         f.render_widget(paragraph, chunks[1]);
 
@@ -285,33 +263,14 @@ impl TextArea {
             &mut state,
         );
     }
-    fn calculate_wrapped_position(
-        original_pos: (usize, usize),
-        width: usize,
-        lines: &[String],
-    ) -> (usize, usize) {
-        let mut wrapped_line = 0;
-        let mut char_count = 0;
 
-        // Count wrapped lines up to the cursor's line
-        for (idx, line) in lines[..=original_pos.1].iter().enumerate() {
-            if idx < original_pos.1 {
-                wrapped_line += (line.len() + width - 1) / width;
-            } else {
-                // For the cursor's line, calculate exact position
-                let full_lines = original_pos.0 / width;
-                wrapped_line += full_lines;
-                char_count = original_pos.0 % width;
-            }
-        }
-
-        (char_count, wrapped_line)
-    }
-
-    fn style_cursor(content: &Vec<String>, cursor_position: (usize, usize), _: usize) -> Vec<Line> {
+    fn style_cursor(
+        content: &Vec<String>,
+        cursor_position: (usize, usize),
+        line_width: usize,
+    ) -> Vec<Line> {
         let mut lines: Vec<Line> = Vec::new();
-        let width = 80; // This should match actual_width from draw()
-        let wrapped_pos = Self::calculate_wrapped_position(cursor_position, width, content);
+        let wrapped_pos = Self::calculate_wrapped_position(cursor_position, line_width, content);
 
         let mut current_wrapped_line = 0;
         for line in content {
@@ -319,7 +278,7 @@ impl TextArea {
             let chunks: Vec<String> = line
                 .chars()
                 .collect::<Vec<char>>()
-                .chunks(width)
+                .chunks(line_width)
                 .map(|c| c.iter().collect::<String>())
                 .collect();
 
@@ -347,6 +306,30 @@ impl TextArea {
         }
         lines
     }
+
+    fn calculate_wrapped_position(
+        original_pos: (usize, usize),
+        width: usize,
+        lines: &[String],
+    ) -> (usize, usize) {
+        let mut wrapped_line = 0;
+        let mut char_count = original_pos.0;
+
+        for (idx, line) in lines.iter().enumerate() {
+            let num_wrapped_lines = (line.len() + width - 1) / width;
+
+            if idx < original_pos.1 {
+                wrapped_line += num_wrapped_lines;
+            } else {
+                // Determine the exact wrapped position within the current line
+                wrapped_line += char_count / width;
+                char_count %= width;
+                break;
+            }
+        }
+
+        (char_count, wrapped_line)
+    }
     pub fn get_flattened_cursor_position(&self) -> usize {
         let mut pos = 0;
         for (i, line) in self.lines.iter().enumerate() {
@@ -355,22 +338,5 @@ impl TextArea {
             }
         }
         pos + self.cursor_pos.0
-    }
-}
-
-fn split_line_with_width(
-    line: &str,
-    width: usize,
-    modified_line: &mut Vec<String>,
-    repeat: &mut usize,
-) {
-    if line.len() > width {
-        *repeat += 1;
-        let subs = line.split_at(width);
-        split_line_with_width(subs.0, width, modified_line, repeat);
-        split_line_with_width(subs.1, width, modified_line, repeat);
-    } else {
-        modified_line.push(line.to_string());
-        return;
     }
 }

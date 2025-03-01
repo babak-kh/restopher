@@ -504,7 +504,7 @@ impl<'a> App<'a> {
                             let mut req: super::request::Request =
                                 serde_json::from_reader(fs::File::open(path.clone())?)?;
                             req.set_collection_path(path.to_owned());
-                            trace_dbg!(level: tracing::Level::INFO, &req);
+                            //trace_dbg!(level: tracing::Level::INFO, &req);
                             req
                         });
                         return Ok(());
@@ -545,7 +545,7 @@ impl<'a> App<'a> {
             fs::create_dir(path.clone())?;
             return Ok(());
         };
-        trace_dbg!(level: tracing::Level::INFO, ("in NONE", &paths));
+        //trace_dbg!(level: tracing::Level::INFO, ("in NONE", &paths));
         return Err(Error::NoRequestErr(1));
     }
 
@@ -639,7 +639,7 @@ pub fn update_request_collection(
     paths: Vec<String>,
 ) -> Result<(), Error> {
     if let Some(path) = paths.last() {
-        trace_dbg!(level: tracing::Level::INFO, ("in update", &path));
+        //trace_dbg!(level: tracing::Level::INFO, ("in update", &path));
         if !fs::metadata(path.clone())?.is_dir() {
             return Err(Error::InputErr("not a directory".to_string()));
         }

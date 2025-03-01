@@ -167,7 +167,7 @@ impl Request {
                         .filter(|item| item.0 == "content-type")
                         .last();
                 };
-                trace_dbg!(level:tracing::Level::INFO, &ct);
+                //trace_dbg!(level:tracing::Level::INFO, &ct);
                 match ct {
                     Some(content_type) => {
                         match content_type {
@@ -224,6 +224,9 @@ impl Request {
     }
     pub fn set_body(&mut self, b: Body) {
         self.body = b;
+    }
+    pub fn body(&self) -> Body {
+        self.body.clone()
     }
     pub fn handle_json_body(&self) -> Result<Option<serde_json::Value>, crate::app::Error> {
         match &self.body.payload {
@@ -282,6 +285,16 @@ impl Request {
             .filter(|item| item.2)
             .map(|item| (item.0.clone(), item.1.clone()))
             .collect::<HashMap<String, String>>()
+    }
+    pub fn remove_header(&mut self, header_idx: usize) {
+        if let Some(headers) = &mut self.headers {
+            headers.remove(header_idx);
+        }
+    }
+    pub fn remove_param(&mut self, param_idx: usize) {
+        if let Some(params) = &mut self.params {
+            params.remove(param_idx);
+        }
     }
 }
 
