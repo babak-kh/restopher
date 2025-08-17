@@ -100,11 +100,6 @@ impl RequestsComponent {
                             Some(Action::RequestRemoved)
                         }
                     }
-                    Key::Char('n') => {
-                        requests.push(Request::new());
-                        *request_index = requests.len() - 1;
-                        Some(Action::RequestCreated)
-                    }
                     _ => None,
                 },
                 Modifier::Alt => match event.key {

@@ -3,10 +3,12 @@ mod collection;
 mod components;
 mod env_replacer;
 mod environments;
+mod graphql;
 mod keys;
 mod layout;
 mod logger;
 mod main_windows;
+mod models;
 mod request;
 mod styles;
 

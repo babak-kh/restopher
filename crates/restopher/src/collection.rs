@@ -6,9 +6,9 @@ use crate::{
     keys::keys::{Event, Key, Modifier as keyModifier},
     layout::centered_rect,
 };
+use ratatui::widgets::{Block, Clear, Scrollbar, ScrollbarOrientation};
 use ratatui::{
     style::{Color, Modifier, Style},
-    widgets::{Block, Clear, Scrollbar, ScrollbarOrientation},
     Frame,
 };
 

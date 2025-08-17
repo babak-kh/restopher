@@ -1,0 +1,17 @@
+[package]
+name = "scrollable_widget"
+version = "0.1.0"
+edition = "2021"
+description = "A reusable scrollable List widget for ratatui"
+license = "MIT OR Apache-2.0"
+repository = ""
+keywords = ["tui", "ratatui", "widget", "list", "scroll"]
+categories = ["command-line-interface"]
+
+[lib]
+name = "scrollable_widget"
+path = "src/lib.rs"
+
+[dependencies]
+# Use the same ratatui version as the main app; alias for consistent imports
+ratatui.workspace = true

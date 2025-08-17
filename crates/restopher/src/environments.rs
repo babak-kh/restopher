@@ -269,7 +269,7 @@ impl TempEnv {
             scrollbar,
             chunks[0].inner(Margin {
                 // using an inner vertical margin of 1 unit makes the scrollbar inside the block
-                vertical: 1,
+                vertical: 0,
                 horizontal: 0,
             }),
             &mut scrollbar_state,

@@ -1,0 +1,28 @@
+[package]
+name = "restopher"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ratatui.workspace = true
+crossterm = "*"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.11.16", features = ["json"] }
+tui-textarea = { version = "*", default-features = false, features = [
+  "ratatui-crossterm",
+] }
+serde = { version = "1.0.160", features = ["derive"] }
+serde_json = "*"
+regex = "1"
+tui-tree-widget = "0.23.1"
+tracing-error = "0.2.0"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+directories = "5.0.1"
+lazy_static = "1.5.0"
+color-eyre = "0.6.3"
+copypasta = "0.10.1"
+serde-xml-rs = "0.6.0"
+anyhow = "1.0"
+graphql-parser = "0.4.1"
+scrollable_widget = { path = "../scrollable_widget" }

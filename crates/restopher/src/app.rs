@@ -2,8 +2,9 @@ use crate::{
     collection::{Action, Collection},
     components::{error_popup, MultiOptionWidget},
     environments::{self, Environment, TempEnv},
-    layout,
+    layout::{self, centered_rect},
     main_windows::{key_registry, ChangeEvent, MainWindows},
+    models::{self, SaveOptions},
     request::HttpVerb,
     trace_dbg,
 };
@@ -19,6 +20,7 @@ use crate::{
 };
 
 use crate::env_replacer::EnvReplacer;
+use crate::graphql::GraphQL;
 use crate::*;
 use crossterm::event::{self, Event};
 use ratatui::{backend::Backend, Frame, Terminal};
@@ -73,8 +75,11 @@ pub struct App<'a> {
     resp_tabs: ResponseTabComponent,
     address_bar: AddressBarComponent,
     requests_component: RequestsComponent,
-    mutli_option_save_request: Option<MultiOptionWidget>,
+    mutli_option_save_request: Option<MultiOptionWidget<models::SaveOptions>>,
+    multi_option_new_request_mode: Option<MultiOptionWidget<request::Mode>>,
     current_request_idx: usize,
+    graphql: graphql::GraphQL,
+    gql_ui: graphql::GqlUI,
     error_pop_up: (bool, Option<Error>),
 
     all_envs: Vec<Environment>,
@@ -87,7 +92,7 @@ pub struct App<'a> {
 impl<'a> App<'a> {
     pub fn new() -> Self {
         let all_envs = App::load_envs().unwrap();
-        let requests = vec![super::request::Request::new()];
+        let requests = vec![super::request::Request::new(request::Mode::REST)];
         let cols = Collection::default(format!("{}/{}", DATA_DIRECTORY, COLLECTION_PATH));
         App {
             client: reqwest::Client::new(),
@@ -107,10 +112,15 @@ impl<'a> App<'a> {
             main_window: MainWindows::Main,
 
             mutli_option_save_request: None,
+            multi_option_new_request_mode: None,
+
             req_tabs: RequestTabComponent::new(),
             resp_tabs: ResponseTabComponent::new(),
             address_bar: AddressBarComponent::new(),
             requests_component: RequestsComponent::new(),
+
+            graphql: GraphQL::new().unwrap(),
+            gql_ui: graphql::GqlUI::new(),
         }
     }
     pub fn load_envs() -> Result<Vec<Environment>, Error> {
@@ -158,6 +168,14 @@ impl<'a> App<'a> {
             if is_quit(&even) {
                 return Ok(Some("quit".to_string()));
             }
+            if let Some(new_request_mode) = &mut self.multi_option_new_request_mode {
+                if let Some(mode) = new_request_mode.update(&even) {
+                    self.new_request(mode);
+                    self.change_request();
+                    self.multi_option_new_request_mode = None;
+                }
+            }
+
             if is_navigation(&even) && matches!(self.main_window, MainWindows::Main) {
                 self.navigation(&even);
                 return Ok(None);
@@ -189,8 +207,10 @@ impl<'a> App<'a> {
                     return Ok(None);
                 }
                 ChangeEvent::NewRequest => {
-                    self.new_request();
-                    self.change_request();
+                    self.multi_option_new_request_mode = Some(MultiOptionWidget::new(vec![
+                        request::Mode::REST,
+                        request::Mode::GraphQL,
+                    ]));
                     return Ok(None);
                 }
                 ChangeEvent::PreRequest => {
@@ -215,8 +235,16 @@ impl<'a> App<'a> {
                 ChangeEvent::NoChange => (),
             }
             if self.req_tabs.is_focused() {
-                self.req_tabs
-                    .update(&mut self.requests[self.current_request_idx], &even);
+                if matches!(
+                    self.requests[self.current_request_idx].mode,
+                    request::Mode::GraphQL
+                ) {
+                    self.graphql
+                        .update(&mut self.requests[self.current_request_idx], &even);
+                } else {
+                    self.req_tabs
+                        .update(&mut self.requests[self.current_request_idx], &even);
+                }
                 return Ok(None);
             }
             if self.address_bar.is_focused() {
@@ -264,8 +292,17 @@ impl<'a> App<'a> {
     }
     fn ui(&mut self, f: &mut Frame) {
         let lay = layout::AppLayout::new(f.area());
-        self.req_tabs
-            .draw(f, &self.requests[self.current_request_idx], lay.request);
+
+        if matches!(
+            self.requests[self.current_request_idx].mode,
+            request::Mode::GraphQL
+        ) {
+            self.graphql
+                .draw(f, &self.requests[self.current_request_idx], lay.request);
+        } else {
+            self.req_tabs
+                .draw(f, &self.requests[self.current_request_idx], lay.request);
+        }
         self.resp_tabs
             .draw(f, &self.requests[self.current_request_idx], lay.response);
         self.address_bar.draw(
@@ -282,6 +319,10 @@ impl<'a> App<'a> {
             self.current_request_idx,
             lay.requests,
         );
+        if let Some(multi_option_new_request_mode) = &mut self.multi_option_new_request_mode {
+            multi_option_new_request_mode.draw(f, centered_rect(50, 50, f.area()));
+            return;
+        }
         if let Some(save_req_opt) = &mut self.mutli_option_save_request {
             save_req_opt.draw(f, f.area());
         }
@@ -298,8 +339,8 @@ impl<'a> App<'a> {
             self.error_pop_up.0 = false;
         }
     }
-    pub fn new_request(&mut self) {
-        self.requests.push(super::Request::new());
+    pub fn new_request(&mut self, mode: request::Mode) {
+        self.requests.push(super::Request::new(mode));
         self.current_request_idx = self.requests.len() - 1;
     }
     pub fn next_req(&mut self) {
@@ -411,9 +452,9 @@ impl<'a> App<'a> {
                 .collection_path()
                 .is_some()
             {
-                vec!["Save as".to_string(), "Save".to_string()]
+                vec![models::SaveOptions::SaveAs, models::SaveOptions::Save]
             } else {
-                vec!["Save as".to_string()]
+                vec![models::SaveOptions::Save]
             }
         };
         self.mutli_option_save_request = Some(MultiOptionWidget::new(options));
@@ -580,11 +621,14 @@ impl<'a> App<'a> {
         if let Some(multi_option) = &mut self.mutli_option_save_request {
             let result = multi_option.update(&even);
             if let Some(s) = result {
-                if s == "Save" {
-                    handle_overwrite_request(&self.requests[self.current_request_idx])?;
-                } else if s == "Save as" {
-                    self.main_window = MainWindows::Collections;
-                    self.collections.set_parent("multi_option".to_string());
+                match s {
+                    SaveOptions::Save => {
+                        handle_overwrite_request(&self.requests[self.current_request_idx])?;
+                    }
+                    SaveOptions::SaveAs => {
+                        self.main_window = MainWindows::Collections;
+                        self.collections.set_parent("multi_option".to_string());
+                    }
                 }
                 self.mutli_option_save_request = None;
                 return Ok(Some(()));

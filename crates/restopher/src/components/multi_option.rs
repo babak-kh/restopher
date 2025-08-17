@@ -4,21 +4,21 @@ use crate::layout::centered_rect;
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
-pub struct MultiOptionWidget {
+pub struct MultiOptionWidget<T> {
     title: String,
-    options: Vec<String>,
+    options: Vec<T>,
     selected_idx: usize,
 }
 
-impl MultiOptionWidget {
-    pub fn new(options: Vec<String>) -> Self {
+impl<T: ToString + Clone> MultiOptionWidget<T> {
+    pub fn new(options: Vec<T>) -> Self {
         Self {
             options,
             selected_idx: 0,
             title: String::from(""),
         }
     }
-    pub fn update(&mut self, event: &Event) -> Option<String> {
+    pub fn update(&mut self, event: &Event) -> Option<T> {
         match event.key {
             Key::Down => {
                 if self.selected_idx < self.options.len() - 1 {
@@ -31,7 +31,7 @@ impl MultiOptionWidget {
                 }
             }
             Key::Enter => {
-                return Some(self.options[self.selected_idx].to_owned());
+                return Some(self.options[self.selected_idx].clone());
             }
             _ => {}
         }
@@ -69,7 +69,7 @@ impl MultiOptionWidget {
         for (i, option) in self.options.iter().enumerate() {
             f.render_widget(
                 {
-                    Paragraph::new(Text::from(option.to_owned()).style(Style::default())).block({
+                    Paragraph::new(Text::from(option.to_string()).style(Style::default())).block({
                         if self.selected_idx == i {
                             default_block(None, true)
                         } else {

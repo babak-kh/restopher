@@ -11,6 +11,24 @@ enum Error {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum Mode {
+    REST,
+    GraphQL,
+}
+impl ToString for Mode {
+    fn to_string(&self) -> String {
+        match self {
+            Mode::REST => "REST".to_string(),
+            Mode::GraphQL => "GraphQL".to_string(),
+        }
+    }
+}
+
+pub fn all_modes<'a>() -> &'a [Mode] {
+    &[Mode::REST, Mode::GraphQL]
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum HttpVerb {
     GET,
     POST,
@@ -80,6 +98,7 @@ pub fn handle_response_headers(
 pub struct Request {
     #[serde(skip)]
     from_collection_path: Option<String>,
+    pub mode: Mode,
     name: String,
     headers: Option<Vec<(String, String, bool)>>,
     params: Option<Vec<(String, String, bool)>>,
@@ -90,10 +109,11 @@ pub struct Request {
 }
 
 impl Request {
-    pub fn new() -> Self {
+    pub fn new(mode: Mode) -> Self {
         Request {
             from_collection_path: None,
             name: String::new(),
+            mode,
             headers: None,
             params: None,
             body: Body {
@@ -172,12 +192,13 @@ impl Request {
                     Some(content_type) => {
                         match content_type {
                             _ if content_type.1.contains("application/json") => {
-                                return serde_json::to_string_pretty(
-                                    &serde_json::from_str::<serde_json::Value>(&body.clone())
-                                        .unwrap(),
-                                )
-                                .unwrap()
-                                .to_string();
+                                match &serde_json::from_str::<serde_json::Value>(&body.clone()) {
+                                    Ok(data) => {
+                                        return serde_json::to_string_pretty(data)
+                                            .unwrap_or_else(|_| body.clone())
+                                    }
+                                    Err(_) => return body.clone(),
+                                }
                             }
                             _ if content_type.1.contains("text/html") => {
                                 match deserialize_xml(body.clone()) {

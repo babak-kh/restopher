@@ -1552,7 +1552,6 @@ dependencies = [
  "ratatui 0.29.0",
  "regex",
  "reqwest",
- "scrollable_widget",
  "serde",
  "serde-xml-rs",
  "serde_json",
@@ -1637,13 +1636,6 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
-
-[[package]]
-name = "scrollable_widget"
-version = "0.1.0"
-dependencies = [
- "ratatui 0.29.0",
-]
 
 [[package]]
 name = "security-framework"
